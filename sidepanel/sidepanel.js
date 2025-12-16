@@ -22,17 +22,25 @@ async function initTree() {
         return true;
       },
       dragEnter: (node, data) => {
-        // Manually trigger highlight ON ENTER
+        // CLEANUP: Remove from ANY other node to prevent multiple highlights
+        $('.fancytree-node.forced-drop-over').removeClass('forced-drop-over');
+
+        // Highlight current
         $(node.span).addClass('forced-drop-over');
-        // User requested strictly Nesting (Child) behavior only
         return ['over'];
       },
-      // Remove dragOver as it's redundant if we use dragEnter which creates a sticky state until leave
+      dragOver: (node, data) => {
+        // RE-FORCE highlight (and ensure exclusivity)
+        if (!$(node.span).hasClass('forced-drop-over')) {
+          $('.fancytree-node.forced-drop-over').removeClass('forced-drop-over'); // Double safety
+          $(node.span).addClass('forced-drop-over');
+        }
+      },
       dragLeave: (node, data) => {
         $(node.span).removeClass('forced-drop-over');
       },
       dragDrop: (node, data) => {
-        $(node.span).removeClass('forced-drop-over'); // Cleanup on drop
+        $('.fancytree-node.forced-drop-over').removeClass('forced-drop-over'); // Global cleanup on drop
         const nodesToMove = selectedNodes.size > 0 ? Array.from(selectedNodes) : [data.otherNode];
 
         nodesToMove.forEach(moveNode => {
@@ -149,7 +157,14 @@ async function saveTreeStructure() {
   await chrome.runtime.sendMessage({ type: 'UPDATE_TREE', tree: treeData });
 }
 
-window.handleBackgroundMessage = (message) => {
+// Listen for broadcast messages from background.js
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  handleBackgroundMessage(message);
+  // Return false (not async response)
+  return false;
+});
+
+function handleBackgroundMessage(message) {
   if (message.type === 'TAB_CREATED') {
     reloadTree();
   } else if (message.type === 'TAB_REMOVED') {
@@ -165,8 +180,34 @@ window.handleBackgroundMessage = (message) => {
 
 async function reloadTree() {
   const response = await chrome.runtime.sendMessage({ type: 'GET_TREE' });
+  const currentWindow = await chrome.windows.getCurrent();
+  const currentWindowId = currentWindow.id;
+
+  // Filter the tree to valid nodes for THIS window only
+  const filteredTree = filterNodesByWindow(response.tree, currentWindowId);
+
   tree.fancytree('getRootNode').removeChildren();
-  tree.fancytree('getRootNode').addChildren(response.tree);
+  tree.fancytree('getRootNode').addChildren(filteredTree);
+}
+
+function filterNodesByWindow(nodes, windowId) {
+  return nodes.reduce((acc, node) => {
+    // If the node itself belongs to this window
+    if (node.data.windowId === windowId) {
+      // Recursively filter children (in case of weird data, though children should match parent window)
+      if (node.children) {
+        node.children = filterNodesByWindow(node.children, windowId);
+      }
+      acc.push(node);
+    } else {
+      // If this node is NOT in the window, but maybe its children are? 
+      // (e.g. if we allowed cross-window grouping, which we don't naturally, 
+      // but if a parent was closed and children moved... logic gets complex).
+      // For now, strict window filtering is safest for a "Sidebar" experience.
+      // If a folder/parent is in another window, we don't show it here.
+    }
+    return acc;
+  }, []);
 }
 
 function updateNode(tabId, tab) {

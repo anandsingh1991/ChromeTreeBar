@@ -177,10 +177,19 @@ ul.fancytree-container li {
 
 /* Drag Helper (The floating element) */
 /* CRITICAL: Must not block mouse events for the underlying nodes to detect hover! */
-.fancytree-drag-helper {
+.fancytree-drag-helper,
+.fancytree-helper,
+.ui-draggable-dragging,
+.ui-helper {
   pointer-events: none !important;
   z-index: 1000 !important;
   opacity: 0.9 !important;
+}
+
+.fancytree-drag-helper *,
+.fancytree-helper *,
+.ui-draggable-dragging * {
+  pointer-events: none !important;
 }
 
 /* Drop Target: Over (Nesting) */
