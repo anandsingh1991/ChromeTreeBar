@@ -23,30 +23,44 @@ async function initializeTree() {
   try {
     // Query ALL tabs (safest for syncing state across all windows)
     const tabs = await chrome.tabs.query({});
+
+    // Sort tabs by window and index to ensure logical processing order
+    tabs.sort((a, b) => {
+      if (a.windowId !== b.windowId) return a.windowId - b.windowId;
+      return a.index - b.index;
+    });
+
     const stored = await chrome.storage.local.get('tabTree');
     const storedTree = stored.tabTree || {};
 
     // Clear and rebuild to ensure we never have stale memory state
     tabTree.clear();
 
-    tabs.forEach(tab => {
-      // We use the stored parent/children info if available, but trust the LIVE tab data
-      const existing = storedTree[tab.id];
+    // Iterate sorted tabs to build tree
+    for (const tab of tabs) {
+      const parentId = determineParentId(tab, tabTree);
+
       tabTree.set(tab.id, {
         tabId: tab.id,
         windowId: tab.windowId,
-        parentId: existing?.parentId || null,
-        children: existing?.children || [],
+        index: tab.index,
+        openerTabId: tab.openerTabId,
+        parentId: parentId,
+        children: [],
         title: tab.title,
         url: tab.url,
         favIconUrl: tab.favIconUrl,
         active: tab.active,
-        level: existing?.level || 0
+        level: 0
       });
-    });
 
-    // Cleanup: Remove children pointers to IDs that don't exist in live tabs
-    // This is auto-maintenance for the tree structure
+      // Update parent's children array immediately
+      if (parentId && tabTree.has(parentId)) {
+        tabTree.get(parentId).children.push(tab.id);
+      }
+    }
+
+    // Cleanup: Filter dead children and ensure consistency
     tabTree.forEach(node => {
       node.children = node.children.filter(childId => tabTree.has(childId));
     });
@@ -55,7 +69,6 @@ async function initializeTree() {
   } finally {
     isInitializing = false;
     // Replay all buffered events that happened during the await
-    // This ensures no 'created' or 'removed' events are lost
     if (eventQueue.length > 0) {
       console.log('Replaying buffered events:', eventQueue.length);
       for (const event of eventQueue) {
@@ -64,6 +77,56 @@ async function initializeTree() {
       eventQueue.length = 0;
     }
   }
+}
+
+// Logic adapted from Reference "Link Map"
+function determineParentId(tab, currentTree, prevNodeOverride = null) {
+  if (!currentTree) return null;
+
+  // 1. New Tab / Empty Tab Check (Rule from Link Map)
+  // If it's a generic "New Tab", it should be a root node (start of a new thought process)
+  // We check pendingUrl because onCreated often has pendingUrl for the target, and url is empty.
+  const url = tab.pendingUrl || tab.url || '';
+  if (url === 'chrome://newtab/' || url === 'about:blank' || url === '') {
+    return null;
+  }
+
+  const openerTabId = tab.openerTabId;
+  let prevNode = prevNodeOverride;
+
+  // If prevNode not provided, try to find it in currentTree (O(N) lookup but acceptable for init)
+  if (!prevNode) {
+    for (const [id, node] of currentTree) {
+      if (node.windowId === tab.windowId && node.index === tab.index - 1) {
+        prevNode = node;
+        break;
+      }
+    }
+  }
+
+  // Rule 1: Default fall-through is Root (return null at end) unless logic matches
+
+  if (prevNode) {
+    // Case 2: Prev node IS the opener -> Nest under it
+    if (openerTabId && prevNode.tabId === openerTabId) {
+      return prevNode.tabId;
+    }
+    // Case 3: Prev node SHARES the same opener -> Sibling (same parent)
+    if (openerTabId && prevNode.openerTabId === openerTabId) {
+      return prevNode.parentId;
+    }
+    // Fallback: If we have an opener but pattern doesn't match, verify existence
+    if (openerTabId && currentTree.has(openerTabId)) {
+      return openerTabId;
+    }
+  } else {
+    // First tab or no prev found -> Use opener if valid (direct child)
+    if (openerTabId && currentTree.has(openerTabId)) {
+      return openerTabId;
+    }
+  }
+
+  return null;
 }
 
 async function handleBufferedEvent(event) {
@@ -180,11 +243,28 @@ chrome.tabs.onMoved.addListener(() => {
 
 // --- Handler Logic ---
 
-function onTabCreated(tab) {
+async function onTabCreated(tab) {
+  console.log('Tab Created:', tab.id, 'Opener:', tab.openerTabId, 'Index:', tab.index);
+
+  // Retrieve previous tab for context (using Chrome API for fresh state)
+  let prevNode = null;
+  if (tab.index > 0) {
+    try {
+      const result = await chrome.tabs.query({ windowId: tab.windowId, index: tab.index - 1 });
+      if (result && result.length > 0 && tabTree.has(result[0].id)) {
+        prevNode = tabTree.get(result[0].id);
+      }
+    } catch (e) { console.error('Error finding prev tab:', e); }
+  }
+
+  const parentId = determineParentId(tab, tabTree, prevNode);
+
   tabTree.set(tab.id, {
     tabId: tab.id,
     windowId: tab.windowId,
-    parentId: null,
+    index: tab.index,
+    openerTabId: tab.openerTabId,
+    parentId: parentId,
     children: [],
     title: tab.title || 'New Tab',
     url: tab.url || '',
@@ -192,6 +272,16 @@ function onTabCreated(tab) {
     active: tab.active,
     level: 0
   });
+
+  if (parentId) {
+    const parent = tabTree.get(parentId);
+    if (parent) {
+      if (!parent.children.includes(tab.id)) {
+        parent.children.push(tab.id);
+      }
+    }
+  }
+
   saveTree();
   notifySidepanel('TAB_CREATED', { tab });
 }
