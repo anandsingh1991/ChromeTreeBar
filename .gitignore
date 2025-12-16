@@ -1,0 +1,12 @@
+# macOS
+.DS_Store
+
+# Git
+.git/
+
+# Node
+node_modules/
+npm-debug.log
+
+# Temporary
+*.log

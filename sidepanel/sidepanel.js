@@ -1,0 +1,214 @@
+let tree;
+let lastClickedNode = null;
+let selectedNodes = new Set();
+
+$(document).ready(() => {
+  initTree();
+});
+
+async function initTree() {
+  const response = await chrome.runtime.sendMessage({ type: 'GET_TREE' });
+
+  tree = $('#tree').fancytree({
+    extensions: ['dnd5'],
+    source: response.tree,
+    dnd5: {
+      preventRecursion: true,
+      preventVoidMoves: true,
+      dragStart: (node, data) => {
+        if (selectedNodes.size > 0 && !selectedNodes.has(node)) {
+          return false;
+        }
+        return true;
+      },
+      dragEnter: (node, data) => {
+        // Manually trigger highlight ON ENTER
+        $(node.span).addClass('forced-drop-over');
+        // User requested strictly Nesting (Child) behavior only
+        return ['over'];
+      },
+      // Remove dragOver as it's redundant if we use dragEnter which creates a sticky state until leave
+      dragLeave: (node, data) => {
+        $(node.span).removeClass('forced-drop-over');
+      },
+      dragDrop: (node, data) => {
+        $(node.span).removeClass('forced-drop-over'); // Cleanup on drop
+        const nodesToMove = selectedNodes.size > 0 ? Array.from(selectedNodes) : [data.otherNode];
+
+        nodesToMove.forEach(moveNode => {
+          if (data.hitMode === 'over') {
+            moveNode.moveTo(node, 'child');
+          } else if (data.hitMode === 'before') {
+            moveNode.moveTo(node, 'before');
+          } else if (data.hitMode === 'after') {
+            moveNode.moveTo(node, 'after');
+          }
+        });
+
+        clearSelection();
+        saveTreeStructure();
+      }
+    },
+    activate: (event, data) => {
+      const tabId = parseInt(data.node.key);
+      chrome.runtime.sendMessage({ type: 'ACTIVATE_TAB', tabId });
+    },
+    renderNode: (event, data) => {
+      const node = data.node;
+      const $span = $(node.span);
+
+      // Clear previous classes to ensure clean state
+      $span.removeClass('active-tab multi-selected');
+
+      if (node.data.active) {
+        $span.addClass('active-tab');
+      }
+
+      if (selectedNodes.has(node)) {
+        $span.addClass('multi-selected');
+      }
+
+      const $title = $span.find('.fancytree-title');
+      $title.empty();
+
+      // Create a container for content to ensure proper flex behavior
+      if (node.data.favIconUrl) {
+        $title.append(`<img class="tab-favicon" src="${node.data.favIconUrl}" alt="">`);
+      } else {
+        // Default globe/page icon styling using Material Icons
+        $title.append(`<span class="material-icons tab-favicon" style="font-size: 16px; color: #5f6368; display: flex; align-items: center; justify-content: center;">public</span>`);
+      }
+
+      $title.append(`<span class="tab-title-text" title="${node.title}">${node.title}</span>`);
+
+      // Close button with Material Icon 'close'
+      const $close = $('<div class="tab-close"><span class="material-icons" style="font-size: 16px;">close</span></div>');
+      $close.on('click', (e) => {
+        e.stopPropagation(); // prevent row selection
+        chrome.runtime.sendMessage({ type: 'CLOSE_TAB', tabId: parseInt(node.key) });
+      });
+      $title.append($close);
+    },
+    click: (event, data) => {
+      const node = data.node;
+
+      if (event.ctrlKey || event.metaKey) {
+        toggleSelection(node);
+        lastClickedNode = node;
+        return false;
+      } else if (event.shiftKey && lastClickedNode) {
+        selectRange(lastClickedNode, node);
+        return false;
+      } else {
+        clearSelection();
+        lastClickedNode = node;
+      }
+    }
+  });
+}
+
+function toggleSelection(node) {
+  if (selectedNodes.has(node)) {
+    selectedNodes.delete(node);
+    $(node.span).removeClass('multi-selected');
+  } else {
+    selectedNodes.add(node);
+    $(node.span).addClass('multi-selected');
+  }
+}
+
+function selectRange(startNode, endNode) {
+  clearSelection();
+  const allNodes = tree.fancytree('getRootNode').visit((n) => n);
+  const flatNodes = [];
+  tree.fancytree('getRootNode').visit((n) => {
+    flatNodes.push(n);
+  });
+
+  const startIdx = flatNodes.indexOf(startNode);
+  const endIdx = flatNodes.indexOf(endNode);
+  const [from, to] = startIdx < endIdx ? [startIdx, endIdx] : [endIdx, startIdx];
+
+  for (let i = from; i <= to; i++) {
+    const node = flatNodes[i];
+    selectedNodes.add(node);
+    $(node.span).addClass('multi-selected');
+  }
+}
+
+function clearSelection() {
+  selectedNodes.forEach(node => {
+    $(node.span).removeClass('multi-selected');
+  });
+  selectedNodes.clear();
+}
+
+async function saveTreeStructure() {
+  const rootNode = tree.fancytree('getRootNode');
+  const treeData = rootNode.toDict(true).children;
+  await chrome.runtime.sendMessage({ type: 'UPDATE_TREE', tree: treeData });
+}
+
+window.handleBackgroundMessage = (message) => {
+  if (message.type === 'TAB_CREATED') {
+    reloadTree();
+  } else if (message.type === 'TAB_REMOVED') {
+    reloadTree();
+  } else if (message.type === 'TAB_UPDATED') {
+    updateNode(message.tabId, message.tab);
+  } else if (message.type === 'TAB_ACTIVATED') {
+    updateActiveTab(message.tabId);
+  } else if (message.type === 'TAB_MOVED') {
+    reloadTree();
+  }
+};
+
+async function reloadTree() {
+  const response = await chrome.runtime.sendMessage({ type: 'GET_TREE' });
+  tree.fancytree('getRootNode').removeChildren();
+  tree.fancytree('getRootNode').addChildren(response.tree);
+}
+
+function updateNode(tabId, tab) {
+  const node = tree.fancytree('getNodeByKey', String(tabId));
+  if (node) {
+    // Only update data, then force re-render correctly or update manually
+    // Since title/icon might change, we DO need a full render here.
+    // However, we want to ensure custom render is called.
+    // If renderTitle() is what broke it, we might need to manually update the DOM elements
+    // for title and icon too. 
+
+    if (tab.title) {
+      node.title = tab.title;
+      $(node.span).find('.tab-title-text').text(tab.title);
+      $(node.span).find('.tab-title-text').attr('title', tab.title);
+    }
+    if (tab.favIconUrl) {
+      node.data.favIconUrl = tab.favIconUrl;
+      const $fav = $(node.span).find('.tab-favicon');
+      if ($fav.is('img')) {
+        $fav.attr('src', tab.favIconUrl);
+      } else {
+        // Was a span/default, replace with img
+        // This is complex, easier to trigger valid re-render if needed, 
+        // but let's stick to safe DOM manipulation if possible.
+        $(node.span).find('.fancytree-title').prepend(`<img class="tab-favicon" src="${tab.favIconUrl}" alt="">`);
+        $fav.remove(); // remove old default
+      }
+    }
+    // url update doesn't need visual change usually
+    if (tab.url) node.data.url = tab.url;
+  }
+}
+
+function updateActiveTab(tabId) {
+  tree.fancytree('getRootNode').visit((node) => {
+    const isActive = parseInt(node.key) === tabId;
+    node.data.active = isActive;
+    if (isActive) {
+      $(node.span).addClass('active-tab');
+    } else {
+      $(node.span).removeClass('active-tab');
+    }
+  });
+}

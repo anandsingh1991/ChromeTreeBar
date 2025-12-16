@@ -1,0 +1,11 @@
+{
+  "name": "chromebar",
+  "version": "1.0.0",
+  "description": "Tree Style Tab Manager for Chrome",
+  "scripts": {
+    "build": "echo 'No build needed - using CDN'"
+  },
+  "keywords": ["chrome-extension", "tabs", "tree"],
+  "author": "",
+  "license": "MIT"
+}

@@ -1,0 +1,323 @@
+:root {
+  /* Core Colors - Light Mode (Default) */
+  --sys-color-background: #ffffff;
+  --sys-color-surface: #f3f3f3;
+  --sys-color-surface-hover: #e3e3e3;
+  --sys-color-on-surface: #1f1f1f;
+  --sys-color-on-surface-variant: #444746;
+
+  --sys-color-primary-container: #d3e3fd;
+  --sys-color-on-primary-container: #041e49;
+
+  --sys-color-secondary-container: #e8def8;
+  --sys-color-on-secondary-container: #1d192b;
+
+  --sys-color-outline: #747775;
+  --sys-color-outline-variant: #c4c7c5;
+
+  /* Spacing & Layout */
+  --sys-shape-corner: 14px;
+  --sys-spacing-small: 4px;
+  --sys-spacing-medium: 8px;
+  --sys-spacing-large: 12px;
+
+  --row-height: 32px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --sys-color-background: #1e1f20;
+    --sys-color-surface: #2b2b2b;
+    --sys-color-surface-hover: #3c3d40;
+    --sys-color-on-surface: #e3e3e3;
+    --sys-color-on-surface-variant: #c4c7c5;
+
+    --sys-color-primary-container: #004a77;
+    --sys-color-on-primary-container: #c2e7ff;
+
+    --sys-color-secondary-container: #4a4458;
+    --sys-color-on-secondary-container: #e8def8;
+
+    --sys-color-outline: #8e918f;
+    --sys-color-outline-variant: #444746;
+  }
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  font-family: 'Roboto', 'Google Sans', system-ui, -apple-system, sans-serif;
+  font-size: 13px;
+  background: var(--sys-color-background);
+  color: var(--sys-color-on-surface);
+}
+
+#tree {
+  height: 100vh;
+  width: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 8px;
+  box-sizing: border-box;
+}
+
+/* --- Scrollbar Styling (Hidden/Modern) --- */
+#tree::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+  background: transparent;
+}
+
+#tree::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+#tree::-webkit-scrollbar-thumb {
+  background-color: transparent;
+  border-radius: 3px;
+}
+
+#tree:hover::-webkit-scrollbar-thumb {
+  background-color: var(--sys-color-outline-variant);
+}
+
+
+/* --- Fancytree Overrides (High Specificity) --- */
+
+ul.fancytree-container {
+  border: none !important;
+  background: transparent !important;
+  padding: 0 !important;
+  font-family: inherit;
+  font-size: 13px;
+  outline: none !important;
+  width: 100%;
+}
+
+ul.fancytree-container:focus-visible,
+.fancytree-container span.fancytree-focused {
+  outline: none !important;
+  border: none !important;
+  background: transparent !important;
+}
+
+/* Ensure list items don't have extra spacing or bullets */
+ul.fancytree-container li {
+  margin: 0 !important;
+  padding: 0 !important;
+  list-style: none !important;
+  background: none !important;
+  /* reset any default bg */
+}
+
+/* Row wrapper - Using strong selector to override library */
+.fancytree-container span.fancytree-node {
+  display: flex !important;
+  align-items: center !important;
+  flex-direction: row !important;
+  /* Explicitly row */
+  margin-bottom: 0px;
+  padding: 0 !important;
+  width: 100%;
+  max-width: 100%;
+  min-height: var(--row-height);
+  /* enforce height */
+}
+
+/* The clickable content area (icon + text + badge) */
+.fancytree-container span.fancytree-title {
+  display: flex !important;
+  align-items: center !important;
+  flex: 1;
+  min-width: 0;
+  height: var(--row-height);
+  padding: 0 8px;
+  margin: 1px 0;
+  border: none !important;
+  border-radius: var(--sys-shape-corner);
+  background: transparent;
+  color: var(--sys-color-on-surface);
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+  position: relative;
+  /* Reset potentially conflicting properties */
+  float: none !important;
+  vertical-align: middle !important;
+}
+
+/* Hover State */
+.fancytree-container .fancytree-node:hover span.fancytree-title {
+  background: var(--sys-color-surface-hover);
+}
+
+/* Active Tab State */
+.active-tab .fancytree-title {
+  background: var(--sys-color-primary-container) !important;
+  color: var(--sys-color-on-primary-container) !important;
+  font-weight: 500;
+}
+
+/* Selected Node */
+.fancytree-active .fancytree-title,
+.multi-selected .fancytree-title {
+  background: var(--sys-color-secondary-container) !important;
+  color: var(--sys-color-on-secondary-container) !important;
+}
+
+/* --- Drag and Drop Visuals --- */
+
+/* Node being dragged */
+.fancytree-drag-source {
+  opacity: 0.5;
+}
+
+/* Drag Helper (The floating element) */
+/* CRITICAL: Must not block mouse events for the underlying nodes to detect hover! */
+.fancytree-drag-helper {
+  pointer-events: none !important;
+  z-index: 1000 !important;
+  opacity: 0.9 !important;
+}
+
+/* Drop Target: Over (Nesting) */
+/* Using manual JS class 'forced-drop-over' for 100% reliability */
+.fancytree-container .fancytree-node.forced-drop-over .fancytree-title {
+  background: var(--sys-color-secondary-container) !important;
+  box-shadow: inset 0 0 0 2px var(--sys-color-primary-container) !important;
+  z-index: 100 !important;
+}
+
+/* Drop Target: Before (Insert Above) */
+.fancytree-container .fancytree-drop-accept.fancytree-drop-before .fancytree-title {
+  border-top: 3px solid var(--sys-color-primary-container) !important;
+  /* Thicker for visibility */
+  padding-top: 0 !important;
+  /* adjust padding to keep height consistent if needed, or just let border take space */
+}
+
+/* Drop Target: After (Insert Below) */
+.fancytree-container .fancytree-drop-accept.fancytree-drop-after .fancytree-title {
+  border-bottom: 3px solid var(--sys-color-primary-container) !important;
+}
+
+/* --- Internal Elements --- */
+
+/* Expander (Arrow) */
+.fancytree-container span.fancytree-expander {
+  width: 20px;
+  height: 20px;
+  display: inline-flex !important;
+  /* Force inline-flex */
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  opacity: 0.7;
+  font-family: 'Material Icons';
+  font-size: 18px;
+  cursor: pointer;
+  /* Reset library styles */
+  float: none !important;
+  background-image: none !important;
+  /* Kill default images */
+  vertical-align: middle !important;
+  margin: 0 2px 0 0 !important;
+}
+
+/* Hide legacy icon */
+.fancytree-container span.fancytree-icon {
+  display: none !important;
+}
+
+/* Default state: Leaf Node (Dot) */
+.fancytree-container span.fancytree-expander::before {
+  content: "fiber_manual_record";
+  /* Circle Dot */
+  font-size: 6px;
+  /* Small subtle dot */
+  opacity: 0.3;
+  /* Subtle */
+}
+
+/* Parent Node: Chevron Right (Collapsed) */
+/* We target nodes that have children (or are folders) */
+.fancytree-container .fancytree-has-children span.fancytree-expander::before,
+.fancytree-container .fancytree-folder span.fancytree-expander::before {
+  content: "chevron_right";
+  font-size: 18px;
+  opacity: 0.7;
+}
+
+/* Parent Node: Chevron Down (Expanded) */
+.fancytree-container .fancytree-expanded.fancytree-has-children span.fancytree-expander::before,
+.fancytree-container .fancytree-expanded.fancytree-folder span.fancytree-expander::before {
+  content: "expand_more";
+}
+
+/* Favicon */
+.tab-favicon {
+  display: inline-block !important;
+  /* Force display */
+  width: 16px !important;
+  height: 16px !important;
+  margin-right: 12px;
+  flex-shrink: 0 !important;
+  border-radius: 50%;
+  visibility: visible !important;
+  /* Ensure visible */
+  opacity: 1 !important;
+}
+
+/* Ensure multi-selection doesn't override */
+.multi-selected .tab-favicon,
+.fancytree-active .tab-favicon {
+  opacity: 1 !important;
+  display: inline-block !important;
+}
+
+/* Title text */
+.tab-title-text {
+  flex: 1;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  padding-right: 8px;
+  line-height: var(--row-height);
+  /* Vertically center */
+}
+
+/* Close Button Container */
+.tab-close {
+  width: 24px;
+  height: 24px;
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: var(--sys-color-on-surface-variant);
+  opacity: 0;
+  flex-shrink: 0;
+  transition: opacity 0.2s ease, background-color 0.2s ease;
+  z-index: 10;
+  cursor: pointer;
+}
+
+.fancytree-container .fancytree-node:hover .tab-close {
+  opacity: 1;
+}
+
+.tab-close:hover {
+  background-color: rgba(0, 0, 0, 0.1);
+  color: var(--sys-color-on-surface);
+}
+
+@media (prefers-color-scheme: dark) {
+  .tab-close:hover {
+    background-color: rgba(255, 255, 255, 0.2);
+  }
+}
