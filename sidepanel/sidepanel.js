@@ -317,8 +317,10 @@ function handleBackgroundMessage(message) {
     updateActiveTab(message.tabId);
   } else if (message.type === 'TAB_MOVED') {
     reloadTree();
+  } else if (message.type === 'GROUP_CREATED' || message.type === 'GROUP_UPDATED' || message.type === 'GROUP_REMOVED') {
+    reloadTree();
   }
-};
+}
 
 async function reloadTree() {
   const response = await chrome.runtime.sendMessage({ type: 'GET_TREE' });

@@ -527,9 +527,8 @@ function buildTreeStructure() {
   });
 
   // 4. Combine Groups and Roots
-  // Place Groups at the top for visibility, or mix?
-  // Let's put Groups first.
-  const groupNodes = Array.from(groupNodeMap.values());
+  // Filter out empty groups (no children = group was closed or is stale)
+  const groupNodes = Array.from(groupNodeMap.values()).filter(g => g.children.length > 0);
   // Sort groups by some stable metric? ID is okay.
   groupNodes.sort((a, b) => a.data.groupId - b.data.groupId);
 
