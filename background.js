@@ -526,11 +526,34 @@ function buildTreeStructure() {
     }
   });
 
-  // 4. Combine Groups and Roots
+  // 4. Sort helper: Sort children by tab ID descending (newest first)
+  const sortByNewest = (arr) => {
+    arr.sort((a, b) => {
+      // Groups don't have tabId, use groupId (keep groups at top, sorted by creation)
+      const aId = a.data.tabId || 0;
+      const bId = b.data.tabId || 0;
+      return bId - aId; // Descending (higher ID = newer = first)
+    });
+    // Recursively sort children
+    arr.forEach(node => {
+      if (node.children && node.children.length > 0) {
+        sortByNewest(node.children);
+      }
+    });
+  };
+
+  // 5. Combine Groups and Roots
   // Filter out empty groups (no children = group was closed or is stale)
   const groupNodes = Array.from(groupNodeMap.values()).filter(g => g.children.length > 0);
-  // Sort groups by some stable metric? ID is okay.
+
+  // Sort group children (tabs inside groups) by newest first
+  groupNodes.forEach(g => sortByNewest(g.children));
+
+  // Sort groups themselves by creation (groupId ascending - older groups first, or you can reverse)
   groupNodes.sort((a, b) => a.data.groupId - b.data.groupId);
+
+  // Sort root tabs by newest first
+  sortByNewest(roots);
 
   return [...groupNodes, ...roots];
 }
