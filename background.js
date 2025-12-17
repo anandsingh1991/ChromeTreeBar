@@ -37,33 +37,57 @@ async function initializeTree() {
     tabTree.clear();
 
     // Iterate sorted tabs to build tree
+    // PASS 1: Create Nodes (Restore state if available)
     for (const tab of tabs) {
-      const parentId = determineParentId(tab, tabTree);
+      let parentId = null;
+      let title = tab.title;
+
+      // Try to recover state from storage
+      if (storedTree[tab.id]) {
+        // We persist valid parentId from storage to preserve structure
+        // But we must validity check it later (or let the 2nd pass handle it)
+        parentId = storedTree[tab.id].parentId;
+        // Optionally restore custom title if we saved it? The current logic just uses tab.title from browser.
+        // If user renamed tab in tree, we might want to keep it? 
+        // Current implementation: onTabUpdated updates tree. 
+        // If we want key persistence, we can use storedTree.title if available?
+        // Let's stick to tab.title for now to ensure it matches browser url, unless we explicitly added renaming features.
+      } else {
+        // Fallback for new/unknown tabs active during startup
+        parentId = determineParentId(tab, tabTree);
+      }
 
       tabTree.set(tab.id, {
         tabId: tab.id,
         windowId: tab.windowId,
         index: tab.index,
         openerTabId: tab.openerTabId,
-        parentId: parentId,
-        children: [],
-        title: tab.title,
+        parentId: parentId, // Set provisionally
+        children: [],       // Will populate in Pass 2
+        title: title,
         url: tab.url,
         favIconUrl: tab.favIconUrl,
         active: tab.active,
         level: 0
       });
-
-      // Update parent's children array immediately
-      if (parentId && tabTree.has(parentId)) {
-        tabTree.get(parentId).children.push(tab.id);
-      }
     }
 
-    // Cleanup: Filter dead children and ensure consistency
+    // PASS 2: Link Children (Robust against index order mismatch)
     tabTree.forEach(node => {
-      node.children = node.children.filter(childId => tabTree.has(childId));
+      // Validate Parent
+      if (node.parentId && tabTree.has(node.parentId)) {
+        const parent = tabTree.get(node.parentId);
+        parent.children.push(node.tabId);
+        // We could calculate level here if needed: node.level = parent.level + 1
+      } else {
+        // If parent doesn't exist (closed?), it becomes a root
+        node.parentId = null;
+        node.level = 0;
+      }
     });
+
+    // Cleanup: (Pass 2 basically implicitly handles "dead children" by generating the list from scratch)
+    // We don't need the old filter block because we started with empty children arrays.
 
     saveTree();
   } finally {
