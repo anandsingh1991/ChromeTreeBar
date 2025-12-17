@@ -24,6 +24,21 @@
   --row-height: 32px;
 }
 
+/* --- Root Drop Zone Indicator --- */
+/* When dragging to the far left, show a visual indicator */
+#tree.root-drop-zone-active {
+  box-shadow: inset 4px 0 0 0 var(--sys-color-primary-container);
+  /* Blue strip on left */
+  background: linear-gradient(to right, rgba(211, 227, 253, 0.2) 0%, transparent 10%);
+  /* Subtle fade */
+}
+
+/* Ensure the node highlight is definitely disabled even if JS missed it (though JS handles it) */
+#tree.root-drop-zone-active .fancytree-node.forced-drop-over .fancytree-title {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
 @media (prefers-color-scheme: dark) {
   :root {
     --sys-color-background: #1e1f20;
@@ -131,16 +146,21 @@ body {
   width: 100%;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 0 8px 8px 8px;
-  /* Remove top padding, handled by sticky header if needed, but sticky header takes space? No, sticky header is IN the flow. */
-  /* Wait, #tree is sibling to #search-container. #search-container is at top. */
-  /* If #search-container is sticky, it's fine. But we need to ensure #tree scrolls UNDER it? */
-  /* Actually, if #search-container is outside #tree (which it is), then #tree doesn't need to scroll under it necessarily, 
-     unless we want the whole page to scroll. */
-  /* But body has overflow: hidden. #tree has overflow-y: auto. */
-  /* So #search-container is static at top, #tree takes remaining height. */
-  /* We need to use flexbox on body to ensure #tree takes remaining space. */
+  /* New value: remove left padding so nodes touch the edge (fixing drag detection) */
+  padding: 0 8px 8px 0;
+  /* Top, Right, Bottom, Left */
 }
+
+/* ... Scrollbar Styling ... */
+
+#tree::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+  background: transparent;
+}
+
+/* ... */
+/* Check line 194 for node styles */
 
 /* --- Scrollbar Styling (Hidden/Modern) --- */
 #tree::-webkit-scrollbar {
@@ -198,7 +218,8 @@ ul.fancytree-container li {
   flex-direction: row !important;
   /* Explicitly row */
   margin-bottom: 0px;
-  padding: 0 !important;
+  padding: 0 0 0 8px !important;
+  /* Added left padding here */
   width: 100%;
   max-width: 100%;
   min-height: var(--row-height);

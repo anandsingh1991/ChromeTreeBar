@@ -87,6 +87,28 @@ async function initTree() {
         return ['over'];
       },
       dragOver: (node, data) => {
+        const clientX = data.originalEvent.clientX; // Mouse X position
+        const ROOT_ZONE_WIDTH = 60; // Wider zone (60px) for easier targeting per user request
+
+        // Use SOURCE node to determine if this is relevant
+        // If we are dragging a Nested Node (Level > 1), enable the "Un-nest" strip logic.
+        // This works even if we hover over the Root parent (which sits at x=0).
+        const sourceNode = data.otherNode;
+        const isNestedSource = sourceNode && sourceNode.getLevel() > 1;
+
+        if (isNestedSource && clientX < ROOT_ZONE_WIDTH) {
+          // Visual feedback for Root Drop
+          $('#tree').addClass('root-drop-zone-active');
+
+          // Cleanup node highlight
+          $('.fancytree-node.forced-drop-over').removeClass('forced-drop-over');
+
+          return 'after'; // Dummy return
+        }
+
+        // Default / Fallback
+        $('#tree').removeClass('root-drop-zone-active');
+
         // RE-FORCE highlight (and ensure exclusivity)
         if (!$(node.span).hasClass('forced-drop-over')) {
           $('.fancytree-node.forced-drop-over').removeClass('forced-drop-over'); // Double safety
@@ -95,13 +117,24 @@ async function initTree() {
       },
       dragLeave: (node, data) => {
         $(node.span).removeClass('forced-drop-over');
+        $('#tree').removeClass('root-drop-zone-active');
       },
       dragDrop: (node, data) => {
-        $('.fancytree-node.forced-drop-over').removeClass('forced-drop-over'); // Global cleanup on drop
+        const isRootDrop = $('#tree').hasClass('root-drop-zone-active');
+
+        // Cleanup all visuals
+        $('.fancytree-node.forced-drop-over').removeClass('forced-drop-over');
+        $('#tree').removeClass('root-drop-zone-active');
+
         const nodesToMove = selectedNodes.size > 0 ? Array.from(selectedNodes) : [data.otherNode];
 
         nodesToMove.forEach(moveNode => {
-          if (data.hitMode === 'over') {
+          if (isRootDrop) {
+            // Move to Root (become sibling of first node or just append to root)
+            // Using 'root' as target for moveTo(target, mode) isn't direct in Fancytree sometimes
+            // wrapper. moveTo('root') works if supported, or we move to 'child' of rootNode
+            moveNode.moveTo(tree.fancytree('getRootNode'), 'child');
+          } else if (data.hitMode === 'over') {
             moveNode.moveTo(node, 'child');
           } else if (data.hitMode === 'before') {
             moveNode.moveTo(node, 'before');
@@ -312,6 +345,12 @@ function updateActiveTab(tabId) {
     node.data.active = isActive;
     if (isActive) {
       $(node.span).addClass('active-tab');
+      // CRITICAL: Sync Fancytree's internal 'active' state with Chrome's active tab.
+      // This moves the "Purple" highlight to the current tab, overwriting the "Blue".
+      // {noEvents: true} prevents an infinite loop of activate->sendMessage->activate
+      if (!node.isActive()) {
+        node.setActive(true, { noEvents: true });
+      }
     } else {
       $(node.span).removeClass('active-tab');
     }
