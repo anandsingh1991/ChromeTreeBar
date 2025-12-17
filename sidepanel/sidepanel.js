@@ -4,13 +4,70 @@ let selectedNodes = new Set();
 
 $(document).ready(() => {
   initTree();
+
+  // Search Logic
+  // Search Logic
+  $('#search-input').on('input', function (e) {
+    console.log('Search Input detected:', $(this).val());
+    // If tree not ready, ignore
+    if (!tree || !tree.fancytree('getTree')) {
+      console.warn('Tree not initialized during search');
+      return;
+    }
+
+    if (e.which === 27) { // Escape check still works on keyup usually, but input handles content changes
+      clearSearch();
+      return;
+    }
+
+    // Safety check just in case
+    const treeInstance = tree.fancytree('getTree');
+    if (!treeInstance) return;
+
+    const query = $(this).val().trim();
+    const count = treeInstance.count();
+
+    if (query) {
+      $('#clear-search').show();
+      // Filter: match title, mode="hide"
+      // Returns count of matches
+      const matchCount = treeInstance.filterBranches(query);
+      console.log(`Search query: "${query}", Matches: ${matchCount}`);
+    } else {
+      $('#clear-search').hide();
+      treeInstance.clearFilter();
+    }
+  });
+
+  $('#clear-search').on('click', function () {
+    clearSearch();
+  });
+
+  function clearSearch() {
+    $('#search-input').val('');
+    $('#clear-search').hide();
+    tree.fancytree('getTree').clearFilter();
+  }
 });
 
 async function initTree() {
   const response = await chrome.runtime.sendMessage({ type: 'GET_TREE' });
 
   tree = $('#tree').fancytree({
-    extensions: ['dnd5'],
+    extensions: ['dnd5', 'filter'],
+    quicksearch: true, // Enable Type-ahead
+    filter: {
+      autoApply: true,   // Re-apply last filter if lazy data is loaded
+      autoExpand: true, // Expand all branches that contain matches while filtered
+      counter: true,     // Show a badge with number of matching children on parent
+      fuzzy: false,      // Match single characters in order, e.g. 'fb' -> 'FooBar'
+      hideExpandedCounter: true,  // Hide counter badge if parent is expanded
+      hideExpanders: false,       // Hide expanders if all child nodes are hidden by filter
+      highlight: false,  // CRITICAL: Disable highlight to prevent overwriting custom render (favicons/close btn)
+      leavesOnly: false, // Match nodes that have children too
+      nodata: true,      // Display a 'no data' status node if result is empty
+      mode: "hide"       // Grayout unmatched nodes (default: "dimm")
+    },
     source: response.tree,
     dnd5: {
       preventRecursion: true,
@@ -65,7 +122,7 @@ async function initTree() {
       const node = data.node;
       const $span = $(node.span);
 
-      // Clear previous classes to ensure clean state
+      // Row-level classes (managed here as they are on the outer span, not title)
       $span.removeClass('active-tab multi-selected');
 
       if (node.data.active) {
@@ -75,8 +132,13 @@ async function initTree() {
       if (selectedNodes.has(node)) {
         $span.addClass('multi-selected');
       }
-
+    },
+    enhanceTitle: (event, data) => {
+      const node = data.node;
+      const $span = $(node.span);
       const $title = $span.find('.fancytree-title');
+
+      // Clear anything Fancytree put there (text or highlight)
       $title.empty();
 
       // Create a container for content to ensure proper flex behavior
@@ -87,6 +149,8 @@ async function initTree() {
         $title.append(`<span class="material-icons tab-favicon" style="font-size: 16px; color: #5f6368; display: flex; align-items: center; justify-content: center;">public</span>`);
       }
 
+      // Re-add the title text (we lose the highlight markup if we just use node.title, 
+      // but keeping it simple for now as per user request to fix visibility)
       $title.append(`<span class="tab-title-text" title="${node.title}">${node.title}</span>`);
 
       // Close button with Material Icon 'close'

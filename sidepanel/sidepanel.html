@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html>
+
 <head>
   <meta charset="UTF-8">
   <title>ChromeBar</title>
@@ -10,11 +11,18 @@
   <link rel="stylesheet" href="../lib/ui.fancytree.min.css">
   <link rel="stylesheet" href="sidepanel.css">
 </head>
+
 <body>
+  <div id="search-container">
+    <span class="material-icons search-icon">search</span>
+    <input type="text" id="search-input" placeholder="Search tabs..." autocomplete="off">
+    <span class="material-icons clear-icon" id="clear-search" style="display: none;">close</span>
+  </div>
   <div id="tree"></div>
-  
+
   <script src="../lib/jquery.min.js"></script>
   <script src="../lib/jquery.fancytree-all-deps.min.js"></script>
   <script src="sidepanel.js"></script>
 </body>
+
 </html>

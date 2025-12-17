@@ -52,17 +52,94 @@ body {
   overflow: hidden;
   font-family: 'Roboto', 'Google Sans', system-ui, -apple-system, sans-serif;
   font-size: 13px;
+  display: flex;
+  /* New Flex Layout */
+  flex-direction: column;
   background: var(--sys-color-background);
   color: var(--sys-color-on-surface);
 }
 
+/* --- Search Bar Sticky Header --- */
+#search-container {
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  background: var(--sys-color-background);
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid transparent;
+  /* or var(--sys-color-surface-hover) if we want a line */
+}
+
+#search-input {
+  width: 100%;
+  padding: 8px 36px 8px 36px;
+  /* Space for search icon left, clear icon right */
+  border-radius: 20px;
+  /* Pill shape */
+  border: none;
+  background: var(--sys-color-surface);
+  color: var(--sys-color-on-surface);
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+  transition: background 0.2s ease, box-shadow 0.2s ease;
+}
+
+#search-input:hover {
+  background: var(--sys-color-surface-hover);
+}
+
+#search-input:focus {
+  background: var(--sys-color-surface);
+  box-shadow: 0 0 0 2px var(--sys-color-primary-container);
+}
+
+.search-icon {
+  position: absolute;
+  left: 22px;
+  /* 12px padding + 10px inside */
+  font-size: 18px;
+  color: var(--sys-color-on-surface-variant);
+  pointer-events: none;
+}
+
+.clear-icon {
+  position: absolute;
+  right: 22px;
+  font-size: 16px;
+  color: var(--sys-color-on-surface-variant);
+  cursor: pointer;
+  background: var(--sys-color-surface-hover);
+  border-radius: 50%;
+  padding: 2px;
+  display: none;
+  /* Toggled via JS */
+}
+
+.clear-icon:hover {
+  color: var(--sys-color-on-surface);
+  background: var(--sys-color-outline-variant);
+}
+
 #tree {
-  height: 100vh;
+  flex: 1;
+  /* Take remaining space */
+  height: auto;
+  /* reset */
   width: 100%;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 8px;
-  box-sizing: border-box;
+  padding: 0 8px 8px 8px;
+  /* Remove top padding, handled by sticky header if needed, but sticky header takes space? No, sticky header is IN the flow. */
+  /* Wait, #tree is sibling to #search-container. #search-container is at top. */
+  /* If #search-container is sticky, it's fine. But we need to ensure #tree scrolls UNDER it? */
+  /* Actually, if #search-container is outside #tree (which it is), then #tree doesn't need to scroll under it necessarily, 
+     unless we want the whole page to scroll. */
+  /* But body has overflow: hidden. #tree has overflow-y: auto. */
+  /* So #search-container is static at top, #tree takes remaining height. */
+  /* We need to use flexbox on body to ensure #tree takes remaining space. */
 }
 
 /* --- Scrollbar Styling (Hidden/Modern) --- */
@@ -126,6 +203,17 @@ ul.fancytree-container li {
   max-width: 100%;
   min-height: var(--row-height);
   /* enforce height */
+}
+
+/* --- FILTERING SUPPORT (CRITICAL) --- */
+/* Override the 'display: flex !important' above when hidden */
+.fancytree-container span.fancytree-node.fancytree-hide {
+  display: none !important;
+}
+
+/* Also hide the list item to be safe and remove spacing */
+ul.fancytree-container li.fancytree-hide {
+  display: none !important;
 }
 
 /* The clickable content area (icon + text + badge) */
