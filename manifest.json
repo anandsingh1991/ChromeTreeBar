@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "ChromeBar - Tree Style Tab Manager",
+  "name": "ChromeTreeBar",
   "version": "1.0.0",
   "description": "Manage your Chrome tabs in a tree structure with drag-and-drop support",
   "permissions": [
