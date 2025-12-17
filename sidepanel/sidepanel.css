@@ -277,7 +277,86 @@ ul.fancytree-container li.fancytree-hide {
   color: var(--sys-color-on-secondary-container) !important;
 }
 
-/* --- Drag and Drop Visuals --- */
+/* --- Group Card Styling --- */
+
+/* The Header Row */
+/* --- Group Card Styling --- */
+
+/* Fix: Ensure borders and padding don't expand width beyond 100%, causing right-side cutoff */
+#tree * {
+  box-sizing: border-box;
+}
+
+/* The Header Row (Targeting via Parent LI for robustness) */
+#tree li.group-parent-li>span.fancytree-node {
+  background-color: var(--group-color, #5f6368) !important;
+  border-radius: 8px 8px 0 0;
+  /* Only round top corners */
+  margin-top: 8px;
+  margin-bottom: 0px;
+  color: white !important;
+  border: 1px solid var(--group-color, #5f6368) !important;
+  /* Fix: Solid color prevents gaps */
+  padding-left: 4px !important;
+}
+
+/* When expanded, flatten bottom corners and remove margin to connect with body */
+#tree li.group-parent-li.fancytree-expanded>span.fancytree-node {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  margin-bottom: 0 !important;
+  border-bottom: none !important;
+}
+
+/* Title text */
+#tree li.group-parent-li>span.fancytree-node .group-title-text {
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.5px;
+  margin-left: 4px;
+}
+
+/* Strongly Override Active/Selected/Focused State for Groups */
+#tree li.group-parent-li>span.fancytree-node.fancytree-active,
+#tree li.group-parent-li>span.fancytree-node.fancytree-selected,
+#tree li.group-parent-li>span.fancytree-node.fancytree-focused,
+#tree li.group-parent-li>span.fancytree-node:hover {
+  background-color: var(--group-color, #5f6368) !important;
+  color: white !important;
+  filter: brightness(1.1);
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+/* Ensure inner title is transparent */
+#tree li.group-parent-li>span.fancytree-node .fancytree-title {
+  background: transparent !important;
+  background-color: transparent !important;
+  color: white !important;
+  box-shadow: none !important;
+  border: none !important;
+}
+
+/* The Body (Children Container) */
+#tree li.group-parent-li>ul {
+  border: 2px solid var(--group-color, #5f6368);
+  border-top: none;
+  /* Connects to header */
+  border-bottom-left-radius: 8px;
+  border-bottom-right-radius: 8px;
+  padding: 0;
+  /* Remove padding to let children fill space (or manage individually) */
+  margin-top: 0 !important;
+  background-color: rgba(0, 0, 0, 0.02);
+  /* Very subtle tint */
+  overflow: hidden;
+  /* Fix: Clip children (tabs) that might be too wide or unrounded */
+}
+
+/* Expander Icon White */
+#tree li.group-parent-li>span.fancytree-node .fancytree-expander {
+  filter: brightness(0) invert(1);
+}
 
 /* Node being dragged */
 .fancytree-drag-source {

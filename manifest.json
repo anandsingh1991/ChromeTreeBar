@@ -6,7 +6,8 @@
   "permissions": [
     "tabs",
     "sidePanel",
-    "storage"
+    "storage",
+    "tabGroups"
   ],
   "host_permissions": [
     "<all_urls>"

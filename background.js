@@ -1,5 +1,6 @@
 // Global state (in-memory)
 const tabTree = new Map();
+const groupMap = new Map(); // Store Chrome Tab Groups
 let isInitializing = false;
 let initializationPromise = null;
 const eventQueue = [];
@@ -7,13 +8,7 @@ const eventQueue = [];
 // Initialize immediately on load (handles Service Worker wakeups)
 initializationPromise = initializeTree();
 
-chrome.runtime.onInstalled.addListener(() => {
-  initializationPromise = initializeTree();
-});
-
-chrome.runtime.onStartup.addListener(() => {
-  initializationPromise = initializeTree();
-});
+// ... existing onInstalled/onStartup ...
 
 async function initializeTree() {
   if (isInitializing) return initializationPromise;
@@ -21,8 +16,17 @@ async function initializeTree() {
   eventQueue.length = 0; // Clear queue
 
   try {
-    // Query ALL tabs (safest for syncing state across all windows)
-    const tabs = await chrome.tabs.query({});
+    // Queries in parallel
+    const [tabs, groups] = await Promise.all([
+      chrome.tabs.query({}),
+      chrome.tabGroups.query({})
+    ]);
+
+    // Populate Group Map
+    groupMap.clear();
+    groups.forEach(g => groupMap.set(g.id, g));
+
+
 
     // Sort tabs by window and index to ensure logical processing order
     tabs.sort((a, b) => {
@@ -68,6 +72,7 @@ async function initializeTree() {
         url: tab.url,
         favIconUrl: tab.favIconUrl,
         active: tab.active,
+        groupId: tab.groupId, // Storing Group ID
         level: 0
       });
     }
@@ -264,6 +269,22 @@ chrome.tabs.onMoved.addListener(() => {
   notifySidepanel('TAB_MOVED', {});
 });
 
+// --- Group Listeners ---
+chrome.tabGroups.onCreated.addListener(group => {
+  groupMap.set(group.id, group);
+  notifySidepanel('GROUP_CREATED', { group });
+});
+
+chrome.tabGroups.onUpdated.addListener(group => {
+  groupMap.set(group.id, group);
+  notifySidepanel('GROUP_UPDATED', { group });
+});
+
+chrome.tabGroups.onRemoved.addListener(groupId => {
+  groupMap.delete(groupId);
+  notifySidepanel('GROUP_REMOVED', { groupId });
+});
+
 
 // --- Handler Logic ---
 
@@ -294,6 +315,7 @@ async function onTabCreated(tab) {
     url: tab.url || '',
     favIconUrl: tab.favIconUrl || '',
     active: tab.active,
+    groupId: tab.groupId,
     level: 0
   });
 
@@ -342,6 +364,7 @@ function onTabUpdated(tabId, changeInfo, tab) {
     if (changeInfo.title) node.title = changeInfo.title;
     if (changeInfo.url) node.url = changeInfo.url;
     if (changeInfo.favIconUrl) node.favIconUrl = changeInfo.favIconUrl;
+    if (changeInfo.groupId !== undefined) node.groupId = changeInfo.groupId; // Handle Move to/from Group
     saveTree();
     notifySidepanel('TAB_UPDATED', { tabId, changeInfo, tab });
   }
@@ -443,8 +466,32 @@ function saveTree() {
 
 function buildTreeStructure() {
   const roots = [];
-  const nodeMap = new Map();
+  const nodeMap = new Map(); // Tab Nodes
+  const groupNodeMap = new Map(); // Group Nodes
 
+  // 1. Create Nodes for Groups
+  groupMap.forEach(group => {
+    // We prefix key with 'group_' to distinguish from tab IDs
+    const groupKey = `group_${group.id}`;
+    // Map Chrome colors to known CSS classes or data attributes
+    const groupNode = {
+      key: groupKey,
+      title: group.title || 'Untitled Group',
+      folder: true,
+      expanded: !group.collapsed,
+      children: [],
+      icon: 'waiting', // The frontend 'enhanceTitle' will handle component rendering based on data.isGroup
+      data: {
+        groupId: group.id,
+        windowId: group.windowId,
+        color: group.color, // "blue", "red", etc.
+        isGroup: true
+      }
+    };
+    groupNodeMap.set(group.id, groupNode);
+  });
+
+  // 2. Create Nodes for Tabs
   tabTree.forEach((node, id) => {
     nodeMap.set(id, {
       key: String(id),
@@ -456,19 +503,35 @@ function buildTreeStructure() {
         windowId: node.windowId,
         url: node.url,
         active: node.active,
-        favIconUrl: node.favIconUrl
+        favIconUrl: node.favIconUrl,
+        groupId: node.groupId // Ensure this is passed
       }
     });
   });
 
+  // 3. Assemble Tree
   tabTree.forEach((node, id) => {
     const treeNode = nodeMap.get(id);
+
+    // Logic: Nesting (custom) > Grouping (native) > Root
     if (node.parentId && nodeMap.has(node.parentId)) {
+      // Child of another tab -> Stay nested (Hybrid Model)
       nodeMap.get(node.parentId).children.push(treeNode);
+    } else if (node.groupId > -1 && groupNodeMap.has(node.groupId)) {
+      // Child of a Group -> Go into Group Folder
+      groupNodeMap.get(node.groupId).children.push(treeNode);
     } else {
+      // Root Tab
       roots.push(treeNode);
     }
   });
 
-  return roots;
+  // 4. Combine Groups and Roots
+  // Place Groups at the top for visibility, or mix?
+  // Let's put Groups first.
+  const groupNodes = Array.from(groupNodeMap.values());
+  // Sort groups by some stable metric? ID is okay.
+  groupNodes.sort((a, b) => a.data.groupId - b.data.groupId);
+
+  return [...groupNodes, ...roots];
 }

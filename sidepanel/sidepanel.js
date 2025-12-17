@@ -171,9 +171,41 @@ async function initTree() {
       const $span = $(node.span);
       const $title = $span.find('.fancytree-title');
 
-      // Clear anything Fancytree put there (text or highlight)
+      // Clear anything Fancytree put there
       $title.empty();
 
+      // --- GROUP RENDER ---
+      if (node.data.isGroup) {
+        // Map Chrome colors
+        const colorMap = {
+          "grey": "#5f6368", "blue": "#1a73e8", "red": "#d93025",
+          "yellow": "#e37400", "green": "#188038", "pink": "#d01884",
+          "purple": "#9334e6", "cyan": "#007b83", "orange": "#e25142"
+        };
+        const groupColor = colorMap[node.data.color] || "#5f6368";
+
+        // Apply styles to the Node SPAN (The Header)
+        $span.addClass('group-node-header');
+        $span.css('--group-color', groupColor); // Pass color to CSS
+
+        // Also apply to the Parent LI so we can style the Children Container (UL)
+        if (node.li) {
+          $(node.li).addClass('group-parent-li');
+          $(node.li).css('--group-color', groupColor);
+        }
+
+        // Render Title (White text, card header style)
+        // We use a specific container to control layout
+        $title.html(`<span class="group-title-text">${node.title}</span>`);
+
+        // Add a "Force Expand" visual if needed, or just let standard Fancytree expander work.
+        // Fancytree expander is distinct. We might want to hide it and make the whole header clickable?
+        // For now, keep expander.
+
+        return;
+      }
+
+      // --- TAB RENDER (Existing) ---
       // Create a container for content to ensure proper flex behavior
       if (node.data.favIconUrl) {
         $title.append(`<img class="tab-favicon" src="${node.data.favIconUrl}" alt="">`);
@@ -197,6 +229,13 @@ async function initTree() {
     click: (event, data) => {
       const node = data.node;
 
+      // Group Toggle Logic
+      if (node.data.isGroup) {
+        node.toggleExpanded();
+        node.setFocus(false); // Fix: Remove focus immediately to prevent "transparent/white" style
+        return false; // Prevent default activation (and thus the purple highlight)
+      }
+
       if (event.ctrlKey || event.metaKey) {
         toggleSelection(node);
         lastClickedNode = node;
@@ -207,6 +246,12 @@ async function initTree() {
       } else {
         clearSelection();
         lastClickedNode = node;
+      }
+    },
+    beforeActivate: (event, data) => {
+      // Prevent groups from being "Active" (purple)
+      if (data.node.data.isGroup) {
+        return false;
       }
     }
   });
