@@ -128,11 +128,32 @@ async function initTree() {
 
         const nodesToMove = selectedNodes.size > 0 ? Array.from(selectedNodes) : [data.otherNode];
 
+        // Get tab IDs for Chrome API calls (filter out group nodes)
+        const tabIdsToMove = nodesToMove
+          .filter(n => !n.data.isGroup)
+          .map(n => parseInt(n.key));
+
+        // Check if dropping onto a group node (any hitMode on a group header = adding to group)
+        const isDropOnGroup = node.data && node.data.isGroup;
+
+        // Check if dropping onto a tab that's INSIDE a group (inherit parent's group)
+        const isDropOnTabInGroup = !isDropOnGroup && node.data && node.data.groupId > -1;
+
+        // Determine target groupId
+        let targetGroupId = null;
+        if (isDropOnGroup) {
+          targetGroupId = node.data.groupId;
+        } else if (isDropOnTabInGroup && data.hitMode === 'over') {
+          // Dropping as child of a grouped tab - inherit its group
+          targetGroupId = node.data.groupId;
+        }
+
+        // Determine if we're moving OUT of a group (to root or non-group location)
+        const isMovingOutOfGroup = isRootDrop ||
+          (targetGroupId === null && !isDropOnGroup && !isDropOnTabInGroup);
+
         nodesToMove.forEach(moveNode => {
           if (isRootDrop) {
-            // Move to Root (become sibling of first node or just append to root)
-            // Using 'root' as target for moveTo(target, mode) isn't direct in Fancytree sometimes
-            // wrapper. moveTo('root') works if supported, or we move to 'child' of rootNode
             moveNode.moveTo(tree.fancytree('getRootNode'), 'child');
           } else if (data.hitMode === 'over') {
             moveNode.moveTo(node, 'child');
@@ -142,6 +163,24 @@ async function initTree() {
             moveNode.moveTo(node, 'after');
           }
         });
+
+        // Sync with Chrome Tab Groups API
+        if (tabIdsToMove.length > 0) {
+          if (targetGroupId !== null) {
+            // Dropping INTO a group - add tabs to Chrome group
+            console.log('Adding tabs to group:', targetGroupId, tabIdsToMove);
+            chrome.tabs.group({ groupId: targetGroupId, tabIds: tabIdsToMove });
+          } else if (isMovingOutOfGroup) {
+            // Moving OUT of a group - ungroup tabs that were in a group
+            tabIdsToMove.forEach(tabId => {
+              const movedNode = nodesToMove.find(n => parseInt(n.key) === tabId);
+              if (movedNode && movedNode.data.groupId > -1) {
+                console.log('Ungrouping tab:', tabId);
+                chrome.tabs.ungroup(tabId);
+              }
+            });
+          }
+        }
 
         clearSelection();
         saveTreeStructure();
