@@ -310,10 +310,16 @@ ul.fancytree-container li.fancytree-hide {
 
 /* Title text */
 #tree li.group-parent-li>span.fancytree-node .group-title-text {
+  flex: 1;
   font-weight: 700;
   font-size: 13px;
   letter-spacing: 0.5px;
   margin-left: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  padding-right: 8px;
 }
 
 /* Strongly Override Active/Selected/Focused State for Groups */

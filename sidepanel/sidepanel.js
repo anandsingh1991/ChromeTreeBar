@@ -265,6 +265,17 @@ async function initTree() {
         // We use a specific container to control layout
         $title.html(`<span class="group-title-text">${node.title}</span>`);
 
+        // Close button for group (closes all tabs in group)
+        const $groupClose = $('<div class="tab-close"><span class="material-icons" style="font-size: 16px;">close</span></div>');
+        $groupClose.on('click', async (e) => {
+          e.stopPropagation();
+          const groupId = node.data.groupId;
+          const tabs = await chrome.tabs.query({ groupId });
+          const tabIds = tabs.map(t => t.id);
+          chrome.tabs.remove(tabIds);
+        });
+        $title.append($groupClose);
+
         // Add a "Force Expand" visual if needed, or just let standard Fancytree expander work.
         // Fancytree expander is distinct. We might want to hide it and make the whole header clickable?
         // For now, keep expander.
