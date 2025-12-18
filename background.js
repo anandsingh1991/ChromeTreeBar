@@ -8,6 +8,11 @@ const eventQueue = [];
 // Initialize immediately on load (handles Service Worker wakeups)
 initializationPromise = initializeTree();
 
+// Allow opening the side panel by clicking the extension icon
+chrome.sidePanel
+  .setPanelBehavior({ openPanelOnActionClick: true })
+  .catch((error) => console.error('Error setting panel behavior:', error));
+
 // ... existing onInstalled/onStartup ...
 
 async function initializeTree() {

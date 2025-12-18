@@ -128,10 +128,30 @@ async function initTree() {
 
         const nodesToMove = selectedNodes.size > 0 ? Array.from(selectedNodes) : [data.otherNode];
 
-        // Get tab IDs for Chrome API calls (filter out group nodes)
-        const tabIdsToMove = nodesToMove
-          .filter(n => !n.data.isGroup)
-          .map(n => parseInt(n.key));
+        // Helper: Get a node and all its descendant tabs (for grouping children too)
+        const getAllTabsFromNode = (node) => {
+          const tabs = [];
+          if (!node.data.isGroup) {
+            tabs.push({
+              tabId: parseInt(node.key),
+              sourceGroupId: node.data.groupId ?? -1
+            });
+          }
+          if (node.children) {
+            node.children.forEach(child => {
+              tabs.push(...getAllTabsFromNode(child));
+            });
+          }
+          return tabs;
+        };
+
+        // Get ALL tabs (including descendants) from nodes being moved
+        // Capture their current groupId BEFORE any tree manipulation
+        const tabsToMove = [];
+        nodesToMove.forEach(n => {
+          tabsToMove.push(...getAllTabsFromNode(n));
+        });
+        const tabIdsToMove = tabsToMove.map(t => t.tabId);
 
         // Check if dropping onto a group node (any hitMode on a group header = adding to group)
         const isDropOnGroup = node.data && node.data.isGroup;
@@ -139,18 +159,19 @@ async function initTree() {
         // Check if dropping onto a tab that's INSIDE a group (inherit parent's group)
         const isDropOnTabInGroup = !isDropOnGroup && node.data && node.data.groupId > -1;
 
-        // Determine target groupId
+        // Determine target groupId - BUT NOT if we're doing a root drop!
         let targetGroupId = null;
-        if (isDropOnGroup) {
-          targetGroupId = node.data.groupId;
-        } else if (isDropOnTabInGroup && data.hitMode === 'over') {
-          // Dropping as child of a grouped tab - inherit its group
-          targetGroupId = node.data.groupId;
+        if (!isRootDrop) {  // Only set target group if NOT dropping to root
+          if (isDropOnGroup) {
+            targetGroupId = node.data.groupId;
+          } else if (isDropOnTabInGroup && data.hitMode === 'over') {
+            // Dropping as child of a grouped tab - inherit its group
+            targetGroupId = node.data.groupId;
+          }
         }
 
         // Determine if we're moving OUT of a group (to root or non-group location)
-        const isMovingOutOfGroup = isRootDrop ||
-          (targetGroupId === null && !isDropOnGroup && !isDropOnTabInGroup);
+        const isMovingOutOfGroup = isRootDrop || targetGroupId === null;
 
         nodesToMove.forEach(moveNode => {
           if (isRootDrop) {
@@ -165,16 +186,23 @@ async function initTree() {
         });
 
         // Sync with Chrome Tab Groups API
+        console.log('DragDrop debug:', {
+          isRootDrop,
+          targetGroupId,
+          isMovingOutOfGroup,
+          tabsToMove
+        });
+
         if (tabIdsToMove.length > 0) {
           if (targetGroupId !== null) {
             // Dropping INTO a group - add tabs to Chrome group
             console.log('Adding tabs to group:', targetGroupId, tabIdsToMove);
             chrome.tabs.group({ groupId: targetGroupId, tabIds: tabIdsToMove });
           } else if (isMovingOutOfGroup) {
-            // Moving OUT of a group - ungroup tabs that were in a group
-            tabIdsToMove.forEach(tabId => {
-              const movedNode = nodesToMove.find(n => parseInt(n.key) === tabId);
-              if (movedNode && movedNode.data.groupId > -1) {
+            // Moving OUT of a group - ungroup tabs that WERE in a group
+            tabsToMove.forEach(({ tabId, sourceGroupId }) => {
+              console.log('Checking tab for ungroup:', tabId, 'sourceGroupId:', sourceGroupId);
+              if (sourceGroupId > -1) {
                 console.log('Ungrouping tab:', tabId);
                 chrome.tabs.ungroup(tabId);
               }
