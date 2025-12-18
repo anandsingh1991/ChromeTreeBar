@@ -309,7 +309,11 @@ async function initTree() {
 
       // Group Toggle Logic
       if (node.data.isGroup) {
-        node.toggleExpanded();
+        // Sync with Chrome's tab group collapse state
+        const groupId = node.data.groupId;
+        const isCurrentlyExpanded = node.isExpanded();
+        chrome.tabGroups.update(groupId, { collapsed: isCurrentlyExpanded });
+        // The tree will auto-reload via GROUP_UPDATED event
         node.setFocus(false); // Fix: Remove focus immediately to prevent "transparent/white" style
         return false; // Prevent default activation (and thus the purple highlight)
       }
