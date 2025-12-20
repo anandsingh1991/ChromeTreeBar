@@ -531,3 +531,288 @@ function updateActiveTab(tabId) {
     }
   });
 }
+
+// =====================================================
+// CONTEXT MENU & GROUP DIALOG FUNCTIONALITY
+// =====================================================
+
+const contextMenu = document.getElementById('context-menu');
+const groupDialog = document.getElementById('group-dialog');
+const groupNameInput = document.getElementById('group-name-input');
+
+let contextMenuTarget = null; // { type: 'tab'|'group'|'multi'|'empty', node: FancytreeNode|null, nodes: FancytreeNode[] }
+let pendingGroupTabIds = []; // Tab IDs to group when color is selected
+let lastContextMenuPosition = { x: 100, y: 100 }; // Store position for dialogs
+let editingGroupContext = null; // Store context when editing a group
+
+// Close context menu and group dialog
+function closeContextMenu() {
+  contextMenu.style.display = 'none';
+  contextMenuTarget = null;
+}
+
+function closeGroupDialog() {
+  groupDialog.style.display = 'none';
+  groupNameInput.value = '';
+  pendingGroupTabIds = [];
+  document.querySelectorAll('.color-option').forEach(el => el.classList.remove('selected'));
+}
+
+// Position menu within viewport bounds
+function positionElement(element, x, y) {
+  element.style.display = 'block';
+  const rect = element.getBoundingClientRect();
+  const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
+  
+  let finalX = x;
+  let finalY = y;
+  
+  if (x + rect.width > viewportWidth) {
+    finalX = viewportWidth - rect.width - 8;
+  }
+  if (y + rect.height > viewportHeight) {
+    finalY = viewportHeight - rect.height - 8;
+  }
+  
+  element.style.left = `${Math.max(8, finalX)}px`;
+  element.style.top = `${Math.max(8, finalY)}px`;
+}
+
+// Build menu items based on context
+function buildMenuItems(context) {
+  const items = [];
+  
+  if (context.type === 'tab') {
+    items.push({ icon: 'open_in_new', label: 'Open in new window', action: 'newWindow' });
+    items.push({ icon: 'content_copy', label: 'Duplicate tab', action: 'duplicate' });
+    items.push({ type: 'separator' });
+    items.push({ icon: 'tab_group', label: 'Add to new group', action: 'createGroup' });
+    items.push({ type: 'separator' });
+    items.push({ icon: 'close', label: 'Close tab', action: 'close' });
+  } else if (context.type === 'multi') {
+    items.push({ icon: 'open_in_new', label: `Move ${context.nodes.length} tabs to new window`, action: 'newWindow' });
+    items.push({ type: 'separator' });
+    items.push({ icon: 'tab_group', label: `Add ${context.nodes.length} tabs to new group`, action: 'createGroup' });
+    items.push({ type: 'separator' });
+    items.push({ icon: 'close', label: `Close ${context.nodes.length} tabs`, action: 'close' });
+  } else if (context.type === 'group') {
+    items.push({ icon: 'edit', label: 'Edit group name', action: 'editGroup' });
+    items.push({ icon: 'folder_off', label: 'Ungroup tabs', action: 'ungroup' });
+    items.push({ type: 'separator' });
+    items.push({ icon: 'close', label: 'Close group', action: 'closeGroup' });
+  } else if (context.type === 'empty') {
+    items.push({ icon: 'add', label: 'New tab', action: 'newTab' });
+    items.push({ type: 'separator' });
+    items.push({ icon: 'delete_sweep', label: 'Close all tabs', action: 'closeAll' });
+  }
+  
+  return items;
+}
+
+// Render menu items to DOM
+function renderMenuItems(items) {
+  contextMenu.innerHTML = '';
+  items.forEach(item => {
+    if (item.type === 'separator') {
+      const sep = document.createElement('div');
+      sep.className = 'context-menu-separator';
+      contextMenu.appendChild(sep);
+    } else {
+      const div = document.createElement('div');
+      div.className = 'context-menu-item';
+      div.dataset.action = item.action;
+      div.innerHTML = `<span class="material-icons">${item.icon}</span>${item.label}`;
+      contextMenu.appendChild(div);
+    }
+  });
+}
+
+// Handle menu item click
+async function handleMenuAction(action) {
+  const context = contextMenuTarget;
+  closeContextMenu();
+  
+  if (!context) return;
+  
+  switch (action) {
+    case 'newWindow': {
+      const tabIds = context.type === 'multi' 
+        ? context.nodes.filter(n => !n.data.isGroup).map(n => parseInt(n.key))
+        : [parseInt(context.node.key)];
+      if (tabIds.length > 0) {
+        const newWindow = await chrome.windows.create({ tabId: tabIds[0] });
+        if (tabIds.length > 1) {
+          await chrome.tabs.move(tabIds.slice(1), { windowId: newWindow.id, index: -1 });
+        }
+      }
+      break;
+    }
+    case 'duplicate': {
+      await chrome.tabs.duplicate(parseInt(context.node.key));
+      break;
+    }
+    case 'togglePin': {
+      const tabId = parseInt(context.node.key);
+      const tab = await chrome.tabs.get(tabId);
+      await chrome.tabs.update(tabId, { pinned: !tab.pinned });
+      break;
+    }
+    case 'createGroup': {
+      const tabIds = context.type === 'multi'
+        ? context.nodes.filter(n => !n.data.isGroup).map(n => parseInt(n.key))
+        : [parseInt(context.node.key)];
+      pendingGroupTabIds = tabIds;
+      showGroupDialog(event.clientX || 100, event.clientY || 100);
+      break;
+    }
+    case 'close': {
+      const tabIds = context.type === 'multi'
+        ? context.nodes.filter(n => !n.data.isGroup).map(n => parseInt(n.key))
+        : [parseInt(context.node.key)];
+      await chrome.tabs.remove(tabIds);
+      clearSelection();
+      break;
+    }
+    case 'editGroup': {
+      pendingGroupTabIds = [];
+      const groupId = context.node.data.groupId;
+      const group = await chrome.tabGroups.get(groupId);
+      groupNameInput.value = group.title || '';
+      editingGroupContext = context; // Store for later use in createOrUpdateGroup
+      showGroupDialog(lastContextMenuPosition.x, lastContextMenuPosition.y, true);
+      break;
+    }
+    case 'ungroup': {
+      const groupId = context.node.data.groupId;
+      const tabs = await chrome.tabs.query({ groupId });
+      await chrome.tabs.ungroup(tabs.map(t => t.id));
+      break;
+    }
+    case 'closeGroup': {
+      const groupId = context.node.data.groupId;
+      const tabs = await chrome.tabs.query({ groupId });
+      await chrome.tabs.remove(tabs.map(t => t.id));
+      break;
+    }
+    case 'newTab': {
+      await chrome.tabs.create({});
+      break;
+    }
+    case 'closeAll': {
+      const currentWindow = await chrome.windows.getCurrent();
+      const tabs = await chrome.tabs.query({ windowId: currentWindow.id });
+      // Keep at least one tab (Chrome requires it), create a new tab first
+      await chrome.tabs.create({ windowId: currentWindow.id });
+      await chrome.tabs.remove(tabs.map(t => t.id));
+      break;
+    }
+  }
+}
+
+// Show group dialog
+function showGroupDialog(x, y, isEdit = false) {
+  closeContextMenu();
+  positionElement(groupDialog, x, y);
+  groupNameInput.focus();
+  
+  // Pre-select grey color by default for new groups
+  if (!isEdit) {
+    document.querySelector('.color-option[data-color="grey"]').classList.add('selected');
+  }
+}
+
+// Create or update group when color is clicked
+async function createOrUpdateGroup(color) {
+  const name = groupNameInput.value.trim();
+  
+  if (pendingGroupTabIds.length > 0) {
+    // Creating new group
+    const groupId = await chrome.tabs.group({ tabIds: pendingGroupTabIds });
+    await chrome.tabGroups.update(groupId, { title: name, color });
+  } else if (editingGroupContext && editingGroupContext.type === 'group') {
+    // Editing existing group
+    const groupId = editingGroupContext.node.data.groupId;
+    await chrome.tabGroups.update(groupId, { title: name, color });
+  }
+  
+  closeGroupDialog();
+  editingGroupContext = null; // Clear after use
+}
+
+// Context menu event listener
+document.getElementById('tree').addEventListener('contextmenu', (e) => {
+  e.preventDefault();
+  closeGroupDialog();
+  
+  // Store position for later use in dialogs
+  lastContextMenuPosition = { x: e.clientX, y: e.clientY };
+  
+  // Find the clicked node
+  const $node = $(e.target).closest('.fancytree-node');
+  let context;
+  
+  if ($node.length > 0) {
+    const node = $.ui.fancytree.getNode($node[0]);
+    
+    if (node.data.isGroup) {
+      context = { type: 'group', node, nodes: [node] };
+    } else if (selectedNodes.size > 1 && selectedNodes.has(node)) {
+      context = { type: 'multi', node, nodes: Array.from(selectedNodes) };
+    } else {
+      context = { type: 'tab', node, nodes: [node] };
+    }
+  } else {
+    context = { type: 'empty', node: null, nodes: [] };
+  }
+  
+  contextMenuTarget = context;
+  const items = buildMenuItems(context);
+  renderMenuItems(items);
+  positionElement(contextMenu, e.clientX, e.clientY);
+});
+
+// Menu item click handler
+contextMenu.addEventListener('click', (e) => {
+  const item = e.target.closest('.context-menu-item');
+  if (item) {
+    handleMenuAction(item.dataset.action);
+  }
+});
+
+// Color picker click handler
+document.querySelectorAll('.color-option').forEach(el => {
+  el.addEventListener('click', () => {
+    const color = el.dataset.color;
+    createOrUpdateGroup(color);
+  });
+});
+
+// Enter key in group name input
+groupNameInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    const selectedColor = document.querySelector('.color-option.selected');
+    const color = selectedColor ? selectedColor.dataset.color : 'grey';
+    createOrUpdateGroup(color);
+  } else if (e.key === 'Escape') {
+    closeGroupDialog();
+  }
+});
+
+// Click outside to close
+document.addEventListener('click', (e) => {
+  if (!contextMenu.contains(e.target) && !e.target.closest('.fancytree-node')) {
+    closeContextMenu();
+  }
+  if (!groupDialog.contains(e.target) && !contextMenu.contains(e.target)) {
+    closeGroupDialog();
+  }
+});
+
+// Escape key to close
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    closeContextMenu();
+    closeGroupDialog();
+  }
+});

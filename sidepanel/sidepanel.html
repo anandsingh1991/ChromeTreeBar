@@ -20,6 +20,27 @@
   </div>
   <div id="tree"></div>
 
+  <!-- Context Menu -->
+  <div id="context-menu" class="context-menu" style="display: none;">
+    <!-- Items populated dynamically by JS -->
+  </div>
+
+  <!-- Create Group Dialog -->
+  <div id="group-dialog" class="group-dialog" style="display: none;">
+    <input type="text" id="group-name-input" placeholder="Name this group" autocomplete="off">
+    <div class="color-picker">
+      <div class="color-option" data-color="grey" style="background-color: #5f6368;"></div>
+      <div class="color-option" data-color="blue" style="background-color: #1a73e8;"></div>
+      <div class="color-option" data-color="red" style="background-color: #d93025;"></div>
+      <div class="color-option" data-color="yellow" style="background-color: #e37400;"></div>
+      <div class="color-option" data-color="green" style="background-color: #188038;"></div>
+      <div class="color-option" data-color="pink" style="background-color: #d01884;"></div>
+      <div class="color-option" data-color="purple" style="background-color: #9334e6;"></div>
+      <div class="color-option" data-color="cyan" style="background-color: #007b83;"></div>
+      <div class="color-option" data-color="orange" style="background-color: #e25142;"></div>
+    </div>
+  </div>
+
   <script src="../lib/jquery.min.js"></script>
   <script src="../lib/jquery.fancytree-all-deps.min.js"></script>
   <script src="sidepanel.js"></script>
