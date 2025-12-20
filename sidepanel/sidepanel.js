@@ -343,6 +343,13 @@ async function initTree() {
       }
 
       if (event.ctrlKey || event.metaKey) {
+        // If starting a new multi-selection, include the currently active node too
+        if (selectedNodes.size === 0) {
+          const activeNode = tree.fancytree('getTree').getActiveNode();
+          if (activeNode && activeNode !== node && !activeNode.data.isGroup) {
+            toggleSelection(activeNode);
+          }
+        }
         toggleSelection(node);
         lastClickedNode = node;
         return false;
