@@ -7,7 +7,8 @@
     "tabs",
     "sidePanel",
     "storage",
-    "tabGroups"
+    "tabGroups",
+    "favicon"
   ],
   "host_permissions": [
     "<all_urls>"

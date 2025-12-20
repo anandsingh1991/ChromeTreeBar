@@ -1,6 +1,28 @@
 let tree;
 let lastClickedNode = null;
 let selectedNodes = new Set();
+const EXTENSION_ID = chrome.runtime.id; // Helper for current ID
+let reloadTimer = null;
+
+function getFaviconUrl(pageUrl, directFavIconUrl = null) {
+  // Priority: Use direct favIconUrl from Chrome if available (most reliable for new tabs)
+  // Fallback: Use Chrome's _favicon API (requires favicon to be cached)
+  
+  if (directFavIconUrl && directFavIconUrl.startsWith('http')) {
+    return directFavIconUrl;
+  }
+  
+  if (!pageUrl) {
+    return ''; // or a default
+  }
+  
+  // Use Chrome's _favicon helper (requires "favicon" permission)
+  // Size: 32px is good for high DPI
+  const url = new URL(`chrome-extension://${EXTENSION_ID}/_favicon/`);
+  url.searchParams.append('pageUrl', pageUrl);
+  url.searchParams.append('size', '32');
+  return url.toString();
+}
 
 $(document).ready(() => {
   initTree();
@@ -285,8 +307,10 @@ async function initTree() {
 
       // --- TAB RENDER (Existing) ---
       // Create a container for content to ensure proper flex behavior
-      if (node.data.favIconUrl) {
-        $title.append(`<img class="tab-favicon" src="${node.data.favIconUrl}" alt="">`);
+      // Priority: Use direct favIconUrl from Chrome, fallback to _favicon API
+      const faviconUrl = getFaviconUrl(node.data.url, node.data.favIconUrl);
+      if (faviconUrl) {
+        $title.append(`<img class="tab-favicon" src="${faviconUrl}" alt="">`);
       } else {
         // Default globe/page icon styling using Material Icons
         $title.append(`<span class="material-icons tab-favicon" style="font-size: 16px; color: #5f6368; display: flex; align-items: center; justify-content: center;">public</span>`);
@@ -394,7 +418,7 @@ function handleBackgroundMessage(message) {
   } else if (message.type === 'TAB_REMOVED') {
     reloadTree();
   } else if (message.type === 'TAB_UPDATED') {
-    updateNode(message.tabId, message.tab);
+    updateNode(message.tabId, message.tab, message.changeInfo || {});
   } else if (message.type === 'TAB_ACTIVATED') {
     updateActiveTab(message.tabId);
   } else if (message.type === 'TAB_MOVED') {
@@ -404,16 +428,22 @@ function handleBackgroundMessage(message) {
   }
 }
 
+// Queue a reload with debounce
 async function reloadTree() {
-  const response = await chrome.runtime.sendMessage({ type: 'GET_TREE' });
-  const currentWindow = await chrome.windows.getCurrent();
-  const currentWindowId = currentWindow.id;
+  if (reloadTimer) clearTimeout(reloadTimer);
 
-  // Filter the tree to valid nodes for THIS window only
-  const filteredTree = filterNodesByWindow(response.tree, currentWindowId);
+  reloadTimer = setTimeout(async () => {
+    const response = await chrome.runtime.sendMessage({ type: 'GET_TREE' });
+    const currentWindow = await chrome.windows.getCurrent();
+    const currentWindowId = currentWindow.id;
 
-  tree.fancytree('getRootNode').removeChildren();
-  tree.fancytree('getRootNode').addChildren(filteredTree);
+    // Filter the tree to valid nodes for THIS window only
+    const filteredTree = filterNodesByWindow(response.tree, currentWindowId);
+
+    if (!tree || !tree.fancytree('getTree')) return; // Guard against race condition
+    tree.fancytree('getRootNode').removeChildren();
+    tree.fancytree('getRootNode').addChildren(filteredTree);
+  }, 150);
 }
 
 function filterNodesByWindow(nodes, windowId) {
@@ -436,7 +466,8 @@ function filterNodesByWindow(nodes, windowId) {
   }, []);
 }
 
-function updateNode(tabId, tab) {
+function updateNode(tabId, tab, changeInfo = {}) {
+  if (!tree || !tree.fancytree('getTree')) return; // Guard against race condition
   const node = tree.fancytree('getNodeByKey', String(tabId));
   if (node) {
     // Only update data, then force re-render correctly or update manually
@@ -450,25 +481,40 @@ function updateNode(tabId, tab) {
       $(node.span).find('.tab-title-text').text(tab.title);
       $(node.span).find('.tab-title-text').attr('title', tab.title);
     }
+    
+    // Update URL if changed
+    if (tab.url) {
+      node.data.url = tab.url;
+    }
+    
+    // Store direct favIconUrl from Chrome when available
     if (tab.favIconUrl) {
       node.data.favIconUrl = tab.favIconUrl;
+    }
+    
+    // Update favicon when URL changes OR when favIconUrl changes (page finished loading)
+    const shouldUpdateFavicon = tab.url || changeInfo.favIconUrl || changeInfo.status === 'complete';
+    
+    if (shouldUpdateFavicon && node.data.url) {
+      // Priority: Use direct favIconUrl from Chrome, fallback to _favicon API
+      const newFaviconUrl = getFaviconUrl(node.data.url, node.data.favIconUrl);
+
       const $fav = $(node.span).find('.tab-favicon');
       if ($fav.is('img')) {
-        $fav.attr('src', tab.favIconUrl);
+        // Force reload by adding cache-busting timestamp for favicon updates
+        // This ensures the browser re-fetches from Chrome's favicon cache
+        $fav.attr('src', newFaviconUrl);
       } else {
         // Was a span/default, replace with img
-        // This is complex, easier to trigger valid re-render if needed, 
-        // but let's stick to safe DOM manipulation if possible.
-        $(node.span).find('.fancytree-title').prepend(`<img class="tab-favicon" src="${tab.favIconUrl}" alt="">`);
+        $(node.span).find('.fancytree-title').prepend(`<img class="tab-favicon" src="${newFaviconUrl}" alt="">`);
         $fav.remove(); // remove old default
       }
     }
-    // url update doesn't need visual change usually
-    if (tab.url) node.data.url = tab.url;
   }
 }
 
 function updateActiveTab(tabId) {
+  if (!tree || !tree.fancytree('getTree')) return; // Guard against race condition
   tree.fancytree('getRootNode').visit((node) => {
     const isActive = parseInt(node.key) === tabId;
     node.data.active = isActive;

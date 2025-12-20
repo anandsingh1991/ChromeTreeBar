@@ -16,21 +16,24 @@ chrome.sidePanel
 // ... existing onInstalled/onStartup ...
 
 async function initializeTree() {
+  console.log('Initializing Tree...');
+  console.time('Init:Total');
   if (isInitializing) return initializationPromise;
   isInitializing = true;
   eventQueue.length = 0; // Clear queue
 
   try {
     // Queries in parallel
+    console.time('Init:Query');
     const [tabs, groups] = await Promise.all([
       chrome.tabs.query({}),
       chrome.tabGroups.query({})
     ]);
+    console.timeEnd('Init:Query');
 
     // Populate Group Map
     groupMap.clear();
     groups.forEach(g => groupMap.set(g.id, g));
-
 
 
     // Sort tabs by window and index to ensure logical processing order
@@ -39,7 +42,9 @@ async function initializeTree() {
       return a.index - b.index;
     });
 
+    console.time('Init:Storage');
     const stored = await chrome.storage.local.get('tabTree');
+    console.timeEnd('Init:Storage');
     const storedTree = stored.tabTree || {};
 
     // Clear and rebuild to ensure we never have stale memory state
@@ -47,7 +52,9 @@ async function initializeTree() {
 
     // Iterate sorted tabs to build tree
     // PASS 1: Create Nodes (Restore state if available)
-    for (const tab of tabs) {
+    console.time('Init:Pass1');
+    for (let i = 0; i < tabs.length; i++) {
+      const tab = tabs[i];
       let parentId = null;
       let title = tab.title;
 
@@ -56,14 +63,11 @@ async function initializeTree() {
         // We persist valid parentId from storage to preserve structure
         // But we must validity check it later (or let the 2nd pass handle it)
         parentId = storedTree[tab.id].parentId;
-        // Optionally restore custom title if we saved it? The current logic just uses tab.title from browser.
-        // If user renamed tab in tree, we might want to keep it? 
-        // Current implementation: onTabUpdated updates tree. 
-        // If we want key persistence, we can use storedTree.title if available?
-        // Let's stick to tab.title for now to ensure it matches browser url, unless we explicitly added renaming features.
       } else {
         // Fallback for new/unknown tabs active during startup
-        parentId = determineParentId(tab, tabTree);
+        // Optimization: Use sorted order to pass potential previous sibling
+        const prevSiblingCandidate = (i > 0 && tabs[i - 1].windowId === tab.windowId) ? tabTree.get(tabs[i - 1].id) : null;
+        parentId = determineParentId(tab, tabTree, prevSiblingCandidate);
       }
 
       tabTree.set(tab.id, {
@@ -81,6 +85,7 @@ async function initializeTree() {
         level: 0
       });
     }
+    console.timeEnd('Init:Pass1');
 
     // PASS 2: Link Children (Robust against index order mismatch)
     tabTree.forEach(node => {
@@ -88,7 +93,6 @@ async function initializeTree() {
       if (node.parentId && tabTree.has(node.parentId)) {
         const parent = tabTree.get(node.parentId);
         parent.children.push(node.tabId);
-        // We could calculate level here if needed: node.level = parent.level + 1
       } else {
         // If parent doesn't exist (closed?), it becomes a root
         node.parentId = null;
@@ -96,12 +100,9 @@ async function initializeTree() {
       }
     });
 
-    // Cleanup: (Pass 2 basically implicitly handles "dead children" by generating the list from scratch)
-    // We don't need the old filter block because we started with empty children arrays.
-
-    saveTree();
+    // Final cleanup: Ensure no stale entries made it through
+    await cleanupStaleTabsFromTree();
   } finally {
-    isInitializing = false;
     // Replay all buffered events that happened during the await
     if (eventQueue.length > 0) {
       console.log('Replaying buffered events:', eventQueue.length);
@@ -110,6 +111,8 @@ async function initializeTree() {
       }
       eventQueue.length = 0;
     }
+    console.timeEnd('Init:Total');
+    isInitializing = false;
   }
 }
 
@@ -199,6 +202,52 @@ function saveTree() {
     treeObj[id] = node;
   });
   chrome.storage.local.set({ tabTree: treeObj });
+}
+
+async function cleanupStaleTabsFromTree() {
+  try {
+    // Get all currently open tabs
+    const currentTabs = await chrome.tabs.query({});
+    const validTabIds = new Set(currentTabs.map(t => t.id));
+    
+    // Track if we removed anything
+    let removedCount = 0;
+    
+    // Remove any tab entries that don't exist in Chrome anymore
+    for (const [tabId, node] of tabTree.entries()) {
+      if (!validTabIds.has(tabId)) {
+        console.log('Removing stale tab from tree:', tabId, node.title);
+        
+        // Remove from parent's children array if it has a parent
+        if (node.parentId && tabTree.has(node.parentId)) {
+          const parent = tabTree.get(node.parentId);
+          parent.children = parent.children.filter(id => id !== tabId);
+        }
+        
+        // Re-parent any children of this stale tab to root
+        if (node.children && node.children.length > 0) {
+          node.children.forEach(childId => {
+            const child = tabTree.get(childId);
+            if (child) {
+              child.parentId = null;
+              console.log('Re-parenting child to root:', childId);
+            }
+          });
+        }
+        
+        tabTree.delete(tabId);
+        removedCount++;
+      }
+    }
+    
+    // Only save if we actually removed something
+    if (removedCount > 0) {
+      console.log(`Cleaned up ${removedCount} stale tab(s) from tree`);
+      saveTree();
+    }
+  } catch (error) {
+    console.error('Error during stale tab cleanup:', error);
+  }
 }
 
 function buildTreeStructure() {
@@ -430,6 +479,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (isInitializing && initializationPromise) {
         await initializationPromise;
       }
+      // Clean up any stale tabs before building tree structure
+      await cleanupStaleTabsFromTree();
       sendResponse({ tree: buildTreeStructure() });
     } else if (message.type === 'UPDATE_TREE') {
       updateTreeFromStructure(message.tree);
