@@ -641,3 +641,48 @@ ul.fancytree-container li.fancytree-hide {
     box-shadow: 0 4px 8px 3px rgba(0, 0, 0, 0.3), 0 1px 3px 0 rgba(0, 0, 0, 0.5);
   }
 }
+
+/* --- Bottom Action Bar --- */
+#action-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--sys-color-background);
+  border-top: 1px solid var(--sys-color-outline-variant);
+  flex-shrink: 0;
+}
+
+.action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border: none;
+  border-radius: 18px;
+  background: var(--sys-color-surface);
+  color: var(--sys-color-on-surface);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.action-btn:hover {
+  background: var(--sys-color-surface-hover);
+}
+
+.action-btn:active {
+  background: var(--sys-color-outline-variant);
+}
+
+.action-btn .material-icons {
+  font-size: 18px;
+  color: var(--sys-color-on-surface-variant);
+}
+
+.action-btn:hover .material-icons {
+  color: var(--sys-color-on-surface);
+}

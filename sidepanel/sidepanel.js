@@ -24,10 +24,9 @@ function getFaviconUrl(pageUrl, directFavIconUrl = null) {
   return url.toString();
 }
 
-$(document).ready(() => {
+$(document).ready(async () => {
   initTree();
 
-  // Search Logic
   // Search Logic
   $('#search-input').on('input', function (e) {
     console.log('Search Input detected:', $(this).val());
@@ -591,18 +590,16 @@ function buildMenuItems(context) {
   const items = [];
   
   if (context.type === 'tab') {
-    items.push({ icon: 'open_in_new', label: 'Open in new window', action: 'newWindow' });
     items.push({ icon: 'content_copy', label: 'Duplicate tab', action: 'duplicate' });
     items.push({ type: 'separator' });
-    items.push({ icon: 'tab_group', label: 'Add to new group', action: 'createGroup' });
+    items.push({ icon: 'create_new_folder', label: 'Add to new group', action: 'createGroup' });
     items.push({ type: 'separator' });
-    items.push({ icon: 'close', label: 'Close tab', action: 'close' });
+    items.push({ icon: 'close', label: 'Close tab with children', action: 'closeWithChildren' });
   } else if (context.type === 'multi') {
-    items.push({ icon: 'open_in_new', label: `Move ${context.nodes.length} tabs to new window`, action: 'newWindow' });
-    items.push({ type: 'separator' });
-    items.push({ icon: 'tab_group', label: `Add ${context.nodes.length} tabs to new group`, action: 'createGroup' });
+    items.push({ icon: 'create_new_folder', label: `Add ${context.nodes.length} tabs to new group`, action: 'createGroup' });
     items.push({ type: 'separator' });
     items.push({ icon: 'close', label: `Close ${context.nodes.length} tabs`, action: 'close' });
+    items.push({ icon: 'account_tree', label: `Close ${context.nodes.length} tabs with children`, action: 'closeWithChildren' });
   } else if (context.type === 'group') {
     items.push({ icon: 'edit', label: 'Edit group name', action: 'editGroup' });
     items.push({ icon: 'folder_off', label: 'Ungroup tabs', action: 'ungroup' });
@@ -656,7 +653,14 @@ async function handleMenuAction(action) {
       break;
     }
     case 'duplicate': {
-      await chrome.tabs.duplicate(parseInt(context.node.key));
+      const originalTabId = parseInt(context.node.key);
+      const newTab = await chrome.tabs.duplicate(originalTabId);
+      // Make the duplicate a child of the original tab
+      await chrome.runtime.sendMessage({ 
+        type: 'SET_TAB_PARENT', 
+        tabId: newTab.id, 
+        parentId: originalTabId 
+      });
       break;
     }
     case 'togglePin': {
@@ -681,13 +685,44 @@ async function handleMenuAction(action) {
       clearSelection();
       break;
     }
+    case 'closeWithChildren': {
+      // Helper to collect all descendant tab IDs from a Fancytree node
+      const collectAllTabIds = (node) => {
+        const ids = [];
+        if (!node.data.isGroup) {
+          ids.push(parseInt(node.key));
+        }
+        if (node.children) {
+          node.children.forEach(child => {
+            ids.push(...collectAllTabIds(child));
+          });
+        }
+        return ids;
+      };
+      
+      const nodes = context.type === 'multi' ? context.nodes : [context.node];
+      const allTabIds = [];
+      nodes.forEach(n => {
+        if (!n.data.isGroup) {
+          allTabIds.push(...collectAllTabIds(n));
+        }
+      });
+      
+      // Remove duplicates and close all
+      const uniqueTabIds = [...new Set(allTabIds)];
+      if (uniqueTabIds.length > 0) {
+        await chrome.tabs.remove(uniqueTabIds);
+      }
+      clearSelection();
+      break;
+    }
     case 'editGroup': {
       pendingGroupTabIds = [];
       const groupId = context.node.data.groupId;
       const group = await chrome.tabGroups.get(groupId);
       groupNameInput.value = group.title || '';
       editingGroupContext = context; // Store for later use in createOrUpdateGroup
-      showGroupDialog(lastContextMenuPosition.x, lastContextMenuPosition.y, true);
+      showGroupDialog(lastContextMenuPosition.x, lastContextMenuPosition.y, true, group.color);
       break;
     }
     case 'ungroup': {
@@ -718,14 +753,16 @@ async function handleMenuAction(action) {
 }
 
 // Show group dialog
-function showGroupDialog(x, y, isEdit = false) {
+function showGroupDialog(x, y, isEdit = false, currentColor = 'grey') {
   closeContextMenu();
   positionElement(groupDialog, x, y);
   groupNameInput.focus();
   
-  // Pre-select grey color by default for new groups
-  if (!isEdit) {
-    document.querySelector('.color-option[data-color="grey"]').classList.add('selected');
+  // Clear previous selection and select the appropriate color
+  document.querySelectorAll('.color-option').forEach(el => el.classList.remove('selected'));
+  const colorToSelect = document.querySelector(`.color-option[data-color="${currentColor}"]`);
+  if (colorToSelect) {
+    colorToSelect.classList.add('selected');
   }
 }
 
@@ -787,17 +824,27 @@ contextMenu.addEventListener('click', (e) => {
   }
 });
 
-// Color picker click handler
+// Color picker click handler - select and live-update for editing
 document.querySelectorAll('.color-option').forEach(el => {
-  el.addEventListener('click', () => {
-    const color = el.dataset.color;
-    createOrUpdateGroup(color);
+  el.addEventListener('click', async () => {
+    // Remove selection from all colors
+    document.querySelectorAll('.color-option').forEach(opt => opt.classList.remove('selected'));
+    // Select the clicked color
+    el.classList.add('selected');
+    
+    // For editing existing groups, update color immediately (live preview like Chrome)
+    if (editingGroupContext && editingGroupContext.type === 'group') {
+      const groupId = editingGroupContext.node.data.groupId;
+      const color = el.dataset.color;
+      await chrome.tabGroups.update(groupId, { color });
+    }
   });
 });
 
 // Enter key in group name input
 groupNameInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {
+    e.preventDefault();
     const selectedColor = document.querySelector('.color-option.selected');
     const color = selectedColor ? selectedColor.dataset.color : 'grey';
     createOrUpdateGroup(color);
@@ -806,20 +853,201 @@ groupNameInput.addEventListener('keydown', (e) => {
   }
 });
 
-// Click outside to close
+// Click outside to close - close context menu on ANY click outside the menu
 document.addEventListener('click', (e) => {
-  if (!contextMenu.contains(e.target) && !e.target.closest('.fancytree-node')) {
+  // Close context menu if clicking anywhere outside of it
+  if (contextMenu.style.display !== 'none' && !contextMenu.contains(e.target)) {
     closeContextMenu();
   }
-  if (!groupDialog.contains(e.target) && !contextMenu.contains(e.target)) {
+  // Close group dialog if clicking outside both dialog and context menu
+  if (groupDialog.style.display !== 'none' && !groupDialog.contains(e.target) && !contextMenu.contains(e.target)) {
     closeGroupDialog();
   }
 });
 
-// Escape key to close
+// Also close context menu on mousedown for more responsive feel
+document.addEventListener('mousedown', (e) => {
+  if (contextMenu.style.display !== 'none' && !contextMenu.contains(e.target)) {
+    closeContextMenu();
+  }
+});
+
+// Global keyboard shortcuts for dialogs
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     closeContextMenu();
     closeGroupDialog();
   }
+  // Enter key to confirm group dialog (works even when focus is on color circles)
+  if (e.key === 'Enter' && groupDialog.style.display !== 'none') {
+    e.preventDefault();
+    const selectedColor = document.querySelector('.color-option.selected');
+    const color = selectedColor ? selectedColor.dataset.color : 'grey';
+    createOrUpdateGroup(color);
+  }
 });
+
+// =====================================================
+// BOTTOM ACTION BAR FUNCTIONALITY
+// =====================================================
+
+// New Tab Button
+document.getElementById('btn-new-tab').addEventListener('click', async () => {
+  await chrome.tabs.create({});
+});
+
+// Auto Organize Button
+document.getElementById('btn-auto-organize').addEventListener('click', async () => {
+  await autoOrganize();
+});
+
+/**
+ * Get grouping key from URL
+ * Strips www. prefix, keeps other subdomains separate
+ * www.amazon.com → "amazon.com"
+ * code.amazon.com → "code.amazon.com"
+ * 
+ * Special handling for Chrome internal pages:
+ * - All new tab variants → "newtab"
+ * - chrome:// URLs → use the page name
+ */
+function getGroupingKey(url) {
+  try {
+    const urlObj = new URL(url);
+    const protocol = urlObj.protocol;
+    const hostname = urlObj.hostname;
+    
+    // Handle Chrome internal URLs (chrome://, chrome-search://, etc.)
+    if (protocol.startsWith('chrome')) {
+      // Normalize all new tab page variants to "newtab"
+      // Common variants: chrome://newtab, chrome://new-tab-page, chrome-search://local-ntp
+      if (hostname === 'newtab' || hostname === 'new-tab-page' || hostname === 'local-ntp') {
+        return 'newtab';
+      }
+      // For other chrome:// pages, use the hostname as-is
+      return hostname;
+    }
+    
+    // Standard URLs: strip www. prefix
+    return hostname.replace(/^www\./, '');
+  } catch (e) {
+    return null;
+  }
+}
+
+/**
+ * Collect all tab IDs from a node and its descendants
+ */
+function collectAllTabIdsFromNode(node) {
+  const ids = [];
+  if (!node.data.isGroup) {
+    ids.push(parseInt(node.key));
+  }
+  if (node.children) {
+    node.children.forEach(child => {
+      ids.push(...collectAllTabIdsFromNode(child));
+    });
+  }
+  return ids;
+}
+
+/**
+ * Auto-organize ungrouped root tabs by domain
+ * - Adds tabs to existing groups if a group with matching domain name exists
+ * - Creates new groups only for domains without existing groups
+ */
+async function autoOrganize() {
+  if (!tree || !tree.fancytree('getTree')) return;
+  
+  const rootNode = tree.fancytree('getRootNode');
+  const rootChildren = rootNode.children || [];
+  
+  // Build map of existing groups by their title (domain name)
+  const existingGroups = {};
+  rootChildren.forEach(node => {
+    if (node.data.isGroup && node.title) {
+      const groupKey = node.title.toLowerCase().trim();
+      existingGroups[groupKey] = node.data.groupId;
+      console.log(`Auto-organize: Found existing group "${node.title}" -> key="${groupKey}", groupId=${node.data.groupId}`);
+    }
+  });
+  console.log('Auto-organize: existingGroups map:', existingGroups);
+  
+  // Filter to only ungrouped root tabs (not groups, not already in a group)
+  const ungroupedRootTabs = rootChildren.filter(node => {
+    const groupId = node.data.groupId;
+    // Handle both number and string representations of -1, plus undefined/null
+    const isUngrouped = !node.data.isGroup && (groupId === -1 || groupId === '-1' || groupId === undefined || groupId === null);
+    console.log(`Auto-organize: Checking tab "${node.title}" - isGroup=${node.data.isGroup}, groupId=${groupId} (type: ${typeof groupId}), isUngrouped=${isUngrouped}`);
+    return isUngrouped;
+  });
+  
+  if (ungroupedRootTabs.length === 0) {
+    console.log('Auto-organize: No ungrouped root tabs to organize');
+    return;
+  }
+  
+  // Build domain map: groupingKey → [nodes]
+  const domainMap = {};
+  ungroupedRootTabs.forEach(node => {
+    const key = getGroupingKey(node.data.url);
+    console.log(`Auto-organize: Tab "${node.title}" URL="${node.data.url}" -> groupingKey="${key}"`);
+    if (key) {
+      if (!domainMap[key]) domainMap[key] = [];
+      domainMap[key].push(node);
+    }
+  });
+  console.log('Auto-organize: domainMap:', Object.keys(domainMap));
+  
+  // Chrome's tab group colors in sequence
+  const colors = ['grey', 'blue', 'red', 'yellow', 'green', 'pink', 'purple', 'cyan', 'orange'];
+  let colorIndex = 0;
+  let groupsCreated = 0;
+  let tabsAddedToExisting = 0;
+  
+  // Process each domain
+  for (const [domain, nodes] of Object.entries(domainMap)) {
+    // Collect all tab IDs (including children of each root tab)
+    const allTabIds = [];
+    nodes.forEach(node => {
+      allTabIds.push(...collectAllTabIdsFromNode(node));
+    });
+    
+    // Remove duplicates
+    const uniqueTabIds = [...new Set(allTabIds)];
+    
+    if (uniqueTabIds.length === 0) continue;
+    
+    // Check if a group with this domain name already exists
+    const domainKey = domain.toLowerCase().trim();
+    const existingGroupId = existingGroups[domainKey];
+    console.log(`Auto-organize: Looking for group with key="${domainKey}", found groupId=${existingGroupId}`);
+    
+    if (existingGroupId) {
+      // Add to existing group
+      try {
+        await chrome.tabs.group({ groupId: existingGroupId, tabIds: uniqueTabIds });
+        tabsAddedToExisting += uniqueTabIds.length;
+        console.log(`Auto-organize: Added ${uniqueTabIds.length} tabs to existing group "${domain}"`);
+      } catch (e) {
+        console.error(`Auto-organize: Failed to add tabs to existing group "${domain}"`, e);
+      }
+    } else if (nodes.length >= 2) {
+      // Create new group only if 2+ tabs share this domain (and no existing group)
+      try {
+        const groupId = await chrome.tabs.group({ tabIds: uniqueTabIds });
+        await chrome.tabGroups.update(groupId, {
+          title: domain,
+          color: colors[colorIndex % colors.length]
+        });
+        colorIndex++;
+        groupsCreated++;
+        console.log(`Auto-organize: Created new group "${domain}" with ${uniqueTabIds.length} tabs`);
+      } catch (e) {
+        console.error(`Auto-organize: Failed to create group for "${domain}"`, e);
+      }
+    }
+  }
+  
+  console.log(`Auto-organize: Created ${groupsCreated} new groups, added tabs to ${tabsAddedToExisting} existing`);
+}

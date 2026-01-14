@@ -13,7 +13,6 @@ chrome.sidePanel
   .setPanelBehavior({ openPanelOnActionClick: true })
   .catch((error) => console.error('Error setting panel behavior:', error));
 
-// ... existing onInstalled/onStartup ...
 
 async function initializeTree() {
   console.log('Initializing Tree...');
@@ -118,18 +117,46 @@ async function initializeTree() {
 
 // Logic adapted from Reference "Link Map"
 function determineParentId(tab, currentTree, prevNodeOverride = null) {
-  if (!currentTree) return null;
-
-  // 1. New Tab / Empty Tab Check (Rule from Link Map)
-  // If it's a generic "New Tab", it should be a root node (start of a new thought process)
-  // We check pendingUrl because onCreated often has pendingUrl for the target, and url is empty.
-  const url = tab.pendingUrl || tab.url || '';
-  if (url === 'chrome://newtab/' || url === 'about:blank' || url === '') {
+  console.log('--- determineParentId DEBUG ---');
+  console.log('Tab ID:', tab.id, '| Opener Tab ID:', tab.openerTabId, '| Type:', typeof tab.openerTabId);
+  
+  if (!currentTree) {
+    console.log('DECISION: null (no currentTree)');
     return null;
   }
 
+  const url = tab.url || '';
+  const pendingUrl = tab.pendingUrl || '';
   const openerTabId = tab.openerTabId;
+  
+  console.log('URL:', tab.url, '| Pending URL:', tab.pendingUrl);
+  
+  // PRIORITY 1: Explicit New Tab Check (HIGHEST PRIORITY)
+  // User explicitly opened a new tab (Ctrl+T / Cmd+T) - should ALWAYS be root
+  // Chrome sets pendingUrl to 'chrome://newtab/' for explicit new tab actions
+  if (url === 'chrome://newtab/' || pendingUrl === 'chrome://newtab/' ||
+      url === 'about:blank' || pendingUrl === 'about:blank') {
+    console.log('DECISION: null (explicit new tab - chrome://newtab/ or about:blank)');
+    return null;
+  }
+
+  // PRIORITY 2: Check opener (for links with empty URLs)
+  // Tabs opened from links have openerTabId but empty URL/pendingUrl during onCreated
+  // This catches links before URL loads
+  if (openerTabId && currentTree.has(openerTabId)) {
+    console.log('DECISION:', openerTabId, '(opener exists - link clicked)');
+    return openerTabId;
+  }
+
+  // PRIORITY 3: Fallback for truly empty tabs without opener
+  // If we reach here with empty URLs and no opener, treat as root
+  if (url === '' && pendingUrl === '') {
+    console.log('DECISION: null (empty URLs, no valid opener)');
+    return null;
+  }
+
   let prevNode = prevNodeOverride;
+  console.log('prevNodeOverride provided?', !!prevNodeOverride);
 
   // If prevNode not provided, try to find it in currentTree (O(N) lookup but acceptable for init)
   if (!prevNode) {
@@ -139,28 +166,26 @@ function determineParentId(tab, currentTree, prevNodeOverride = null) {
         break;
       }
     }
+    console.log('prevNode found via iteration?', !!prevNode, prevNode ? `(tabId: ${prevNode.tabId})` : '');
   }
 
-  // Rule 1: Default fall-through is Root (return null at end) unless logic matches
-
+  // PRIORITY 4: Advanced logic with prevNode patterns
   if (prevNode) {
+    console.log('prevNode info - tabId:', prevNode.tabId, '| openerTabId:', prevNode.openerTabId, '| parentId:', prevNode.parentId);
+    
     // Case 2: Prev node IS the opener -> Nest under it
     if (openerTabId && prevNode.tabId === openerTabId) {
+      console.log('DECISION:', prevNode.tabId, '(prevNode IS the opener)');
       return prevNode.tabId;
     }
     // Case 3: Prev node SHARES the same opener -> Sibling (same parent)
     if (openerTabId && prevNode.openerTabId === openerTabId) {
+      console.log('DECISION:', prevNode.parentId, '(sibling - shares same opener)');
       return prevNode.parentId;
     }
-    // Fallback: If we have an opener but pattern doesn't match, verify existence
-    if (openerTabId && currentTree.has(openerTabId)) {
-      return openerTabId;
-    }
+    console.log('DECISION: null (prevNode exists but no matching condition)');
   } else {
-    // First tab or no prev found -> Use opener if valid (direct child)
-    if (openerTabId && currentTree.has(openerTabId)) {
-      return openerTabId;
-    }
+    console.log('DECISION: null (no prevNode, no valid opener)');
   }
 
   return null;
@@ -343,7 +368,15 @@ chrome.tabGroups.onRemoved.addListener(groupId => {
 // --- Handler Logic ---
 
 async function onTabCreated(tab) {
-  console.log('Tab Created:', tab.id, 'Opener:', tab.openerTabId, 'Index:', tab.index);
+  console.log('=== TAB CREATED DEBUG ===');
+  console.log('Tab ID:', tab.id);
+  console.log('Opener Tab ID:', tab.openerTabId, '| Type:', typeof tab.openerTabId);
+  console.log('Index:', tab.index);
+  console.log('URL:', tab.url);
+  console.log('Pending URL:', tab.pendingUrl);
+  console.log('Window ID:', tab.windowId);
+  console.log('Opener exists in tree?', tab.openerTabId ? tabTree.has(tab.openerTabId) : 'N/A (no opener)');
+  console.log('Tree size at creation:', tabTree.size);
 
   // Retrieve previous tab for context (using Chrome API for fresh state)
   let prevNode = null;
@@ -357,6 +390,8 @@ async function onTabCreated(tab) {
   }
 
   const parentId = determineParentId(tab, tabTree, prevNode);
+  console.log('Final parentId assigned:', parentId);
+  console.log('=== END TAB CREATED DEBUG ===');
 
   tabTree.set(tab.id, {
     tabId: tab.id,
@@ -490,6 +525,31 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ success: true });
     } else if (message.type === 'ACTIVATE_TAB') {
       chrome.tabs.update(message.tabId, { active: true });
+      sendResponse({ success: true });
+    } else if (message.type === 'SET_TAB_PARENT') {
+      // Set a tab's parent (used for duplicate to make it a child of original)
+      const { tabId, parentId } = message;
+      const node = tabTree.get(tabId);
+      const parentNode = tabTree.get(parentId);
+      
+      if (node && parentNode) {
+        // Remove from old parent's children if it had one
+        if (node.parentId && tabTree.has(node.parentId)) {
+          const oldParent = tabTree.get(node.parentId);
+          oldParent.children = oldParent.children.filter(id => id !== tabId);
+        }
+        
+        // Set new parent
+        node.parentId = parentId;
+        
+        // Add to new parent's children
+        if (!parentNode.children.includes(tabId)) {
+          parentNode.children.push(tabId);
+        }
+        
+        saveTree();
+        notifySidepanel('TAB_CREATED', {}); // Trigger tree reload
+      }
       sendResponse({ success: true });
     }
   })();
