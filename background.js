@@ -517,6 +517,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       // Clean up any stale tabs before building tree structure
       await cleanupStaleTabsFromTree();
       sendResponse({ tree: buildTreeStructure() });
+    } else if (message.type === 'GET_BOOKMARKS') {
+      const bookmarks = await chrome.bookmarks.getTree();
+      sendResponse({ bookmarks: convertBookmarksToTreeFormat(bookmarks[0].children) });
     } else if (message.type === 'UPDATE_TREE') {
       updateTreeFromStructure(message.tree);
       sendResponse({ success: true });
@@ -525,6 +528,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ success: true });
     } else if (message.type === 'ACTIVATE_TAB') {
       chrome.tabs.update(message.tabId, { active: true });
+      sendResponse({ success: true });
+    } else if (message.type === 'OPEN_BOOKMARK') {
+      chrome.tabs.create({ url: message.url });
       sendResponse({ success: true });
     } else if (message.type === 'SET_TAB_PARENT') {
       // Set a tab's parent (used for duplicate to make it a child of original)
@@ -672,4 +678,37 @@ function buildTreeStructure() {
   sortByNewest(roots);
 
   return [...groupNodes, ...roots];
+}
+
+// Convert Chrome bookmarks to Fancytree format
+function convertBookmarksToTreeFormat(bookmarkNodes) {
+  const result = [];
+  
+  bookmarkNodes.forEach(node => {
+    // Skip empty folders or system folders we don't want to show
+    if (!node.title && !node.url) return;
+    
+    const treeNode = {
+      key: `bookmark_${node.id}`,
+      title: node.title || 'Untitled',
+      folder: !node.url, // Folders don't have URLs
+      expanded: false, // Collapsed by default for performance
+      children: [],
+      data: {
+        isBookmark: true,
+        bookmarkId: node.id,
+        url: node.url,
+        dateAdded: node.dateAdded
+      }
+    };
+    
+    // Recursively process children
+    if (node.children && node.children.length > 0) {
+      treeNode.children = convertBookmarksToTreeFormat(node.children);
+    }
+    
+    result.push(treeNode);
+  });
+  
+  return result;
 }

@@ -50,6 +50,23 @@ $(document).ready(async () => {
 
     if (query) {
       $('#clear-search').show();
+      
+      // Add bookmarks to tree when searching
+      const rootNode = treeInstance.getRootNode();
+      const hasBookmarks = rootNode.children.some(child => child.key === 'bookmarks-root');
+      
+      if (!hasBookmarks && window.bookmarksData) {
+        rootNode.addChildren({
+          key: 'bookmarks-root',
+          title: 'Bookmarks',
+          folder: true,
+          expanded: true, // Expand when searching
+          children: window.bookmarksData,
+          data: { isBookmarkFolder: true },
+          icon: false
+        });
+      }
+      
       // Filter: match title, mode="hide"
       // Returns count of matches
       const matchCount = treeInstance.filterBranches(query);
@@ -57,6 +74,13 @@ $(document).ready(async () => {
     } else {
       $('#clear-search').hide();
       treeInstance.clearFilter();
+      
+      // Remove bookmarks when search is cleared
+      const rootNode = treeInstance.getRootNode();
+      const bookmarksNode = rootNode.findFirst((node) => node.key === 'bookmarks-root');
+      if (bookmarksNode) {
+        bookmarksNode.remove();
+      }
     }
   });
 
@@ -67,12 +91,29 @@ $(document).ready(async () => {
   function clearSearch() {
     $('#search-input').val('');
     $('#clear-search').hide();
-    tree.fancytree('getTree').clearFilter();
+    const treeInstance = tree.fancytree('getTree');
+    treeInstance.clearFilter();
+    
+    // Remove bookmarks when search is cleared
+    const rootNode = treeInstance.getRootNode();
+    const bookmarksNode = rootNode.findFirst((node) => node.key === 'bookmarks-root');
+    if (bookmarksNode) {
+      bookmarksNode.remove();
+    }
   }
 });
 
 async function initTree() {
-  const response = await chrome.runtime.sendMessage({ type: 'GET_TREE' });
+  const [tabsResponse, bookmarksResponse] = await Promise.all([
+    chrome.runtime.sendMessage({ type: 'GET_TREE' }),
+    chrome.runtime.sendMessage({ type: 'GET_BOOKMARKS' })
+  ]);
+
+  // Store bookmarks globally for search
+  window.bookmarksData = bookmarksResponse.bookmarks;
+
+  // Initially show only tabs (no bookmarks)
+  const combinedTree = tabsResponse.tree;
 
   tree = $('#tree').fancytree({
     extensions: ['dnd5', 'filter'],
@@ -87,19 +128,28 @@ async function initTree() {
       highlight: false,  // CRITICAL: Disable highlight to prevent overwriting custom render (favicons/close btn)
       leavesOnly: false, // Match nodes that have children too
       nodata: true,      // Display a 'no data' status node if result is empty
-      mode: "hide"       // Grayout unmatched nodes (default: "dimm")
+      mode: "hide"       // Hide unmatched nodes (default: "dimm")
     },
-    source: response.tree,
+    source: combinedTree,
     dnd5: {
       preventRecursion: true,
       preventVoidMoves: true,
       dragStart: (node, data) => {
+        // Prevent dragging bookmarks
+        if (node.data.isBookmark || node.data.isBookmarkFolder) {
+          return false;
+        }
         if (selectedNodes.size > 0 && !selectedNodes.has(node)) {
           return false;
         }
         return true;
       },
       dragEnter: (node, data) => {
+        // Prevent dropping on bookmarks
+        if (node.data.isBookmark || node.data.isBookmarkFolder) {
+          return false;
+        }
+        
         // CLEANUP: Remove from ANY other node to prevent multiple highlights
         $('.fancytree-node.forced-drop-over').removeClass('forced-drop-over');
 
@@ -236,8 +286,19 @@ async function initTree() {
       }
     },
     activate: (event, data) => {
-      const tabId = parseInt(data.node.key);
-      chrome.runtime.sendMessage({ type: 'ACTIVATE_TAB', tabId });
+      const node = data.node;
+      
+      // Handle bookmark clicks - open in new tab
+      if (node.data.isBookmark && node.data.url) {
+        chrome.runtime.sendMessage({ type: 'OPEN_BOOKMARK', url: node.data.url });
+        return;
+      }
+      
+      // Handle tab activation
+      if (!node.data.isBookmarkFolder && !node.data.isGroup) {
+        const tabId = parseInt(node.key);
+        chrome.runtime.sendMessage({ type: 'ACTIVATE_TAB', tabId });
+      }
     },
     renderNode: (event, data) => {
       const node = data.node;
@@ -261,6 +322,33 @@ async function initTree() {
 
       // Clear anything Fancytree put there
       $title.empty();
+
+      // --- BOOKMARKS ROOT FOLDER RENDER ---
+      if (node.data.isBookmarkFolder) {
+        $span.addClass('bookmarks-root-header');
+        
+        // Bookmarks icon + title
+        $title.html(`
+          <span class="material-icons bookmark-icon" style="font-size: 18px; margin-right: 8px;">bookmarks</span>
+          <span class="bookmark-title-text">${node.title}</span>
+        `);
+        return;
+      }
+
+      // --- BOOKMARK ITEM RENDER ---
+      if (node.data.isBookmark) {
+        $span.addClass('bookmark-node');
+        
+        // Bookmark icon (star for bookmarks, folder for bookmark folders)
+        if (node.folder) {
+          $title.append(`<span class="material-icons bookmark-icon" style="font-size: 16px;">folder</span>`);
+        } else {
+          $title.append(`<span class="material-icons bookmark-icon" style="font-size: 16px;">star</span>`);
+        }
+        
+        $title.append(`<span class="bookmark-title-text">${node.title}</span>`);
+        return;
+      }
 
       // --- GROUP RENDER ---
       if (node.data.isGroup) {
@@ -317,7 +405,7 @@ async function initTree() {
 
       // Re-add the title text (we lose the highlight markup if we just use node.title, 
       // but keeping it simple for now as per user request to fix visibility)
-      $title.append(`<span class="tab-title-text" title="${node.title}">${node.title}</span>`);
+      $title.append(`<span class="tab-title-text">${node.title}</span>`);
 
       // Close button with Material Icon 'close'
       const $close = $('<div class="tab-close"><span class="material-icons" style="font-size: 16px;">close</span></div>');
@@ -329,6 +417,11 @@ async function initTree() {
     },
     click: (event, data) => {
       const node = data.node;
+
+      // Bookmarks: Don't allow multi-select, just expand/collapse folders
+      if (node.data.isBookmark || node.data.isBookmarkFolder) {
+        return; // Let default behavior handle folder toggle
+      }
 
       // Group Toggle Logic
       if (node.data.isGroup) {
@@ -361,8 +454,8 @@ async function initTree() {
       }
     },
     beforeActivate: (event, data) => {
-      // Prevent groups from being "Active" (purple)
-      if (data.node.data.isGroup) {
+      // Prevent groups and bookmarks from being "Active" (purple)
+      if (data.node.data.isGroup || data.node.data.isBookmarkFolder) {
         return false;
       }
     }
@@ -439,16 +532,49 @@ async function reloadTree() {
   if (reloadTimer) clearTimeout(reloadTimer);
 
   reloadTimer = setTimeout(async () => {
-    const response = await chrome.runtime.sendMessage({ type: 'GET_TREE' });
+    const [tabsResponse, bookmarksResponse] = await Promise.all([
+      chrome.runtime.sendMessage({ type: 'GET_TREE' }),
+      chrome.runtime.sendMessage({ type: 'GET_BOOKMARKS' })
+    ]);
+    
+    // Store bookmarks globally
+    window.bookmarksData = bookmarksResponse.bookmarks;
+    
     const currentWindow = await chrome.windows.getCurrent();
     const currentWindowId = currentWindow.id;
 
     // Filter the tree to valid nodes for THIS window only
-    const filteredTree = filterNodesByWindow(response.tree, currentWindowId);
+    const filteredTree = filterNodesByWindow(tabsResponse.tree, currentWindowId);
 
     if (!tree || !tree.fancytree('getTree')) return; // Guard against race condition
-    tree.fancytree('getRootNode').removeChildren();
-    tree.fancytree('getRootNode').addChildren(filteredTree);
+    
+    const rootNode = tree.fancytree('getRootNode');
+    const isSearching = $('#search-input').val().trim().length > 0;
+    
+    // Build tree with or without bookmarks based on search state
+    let combinedTree = filteredTree;
+    if (isSearching) {
+      combinedTree = [
+        ...filteredTree,
+        {
+          key: 'bookmarks-root',
+          title: 'Bookmarks',
+          folder: true,
+          expanded: true,
+          children: bookmarksResponse.bookmarks,
+          data: { isBookmarkFolder: true },
+          icon: false
+        }
+      ];
+    }
+    
+    rootNode.removeChildren();
+    rootNode.addChildren(combinedTree);
+    
+    // Re-apply filter if searching
+    if (isSearching) {
+      tree.fancytree('getTree').filterBranches($('#search-input').val().trim());
+    }
   }, 150);
 }
 
@@ -485,7 +611,6 @@ function updateNode(tabId, tab, changeInfo = {}) {
     if (tab.title) {
       node.title = tab.title;
       $(node.span).find('.tab-title-text').text(tab.title);
-      $(node.span).find('.tab-title-text').attr('title', tab.title);
     }
     
     // Update URL if changed
@@ -589,6 +714,15 @@ function positionElement(element, x, y) {
 function buildMenuItems(context) {
   const items = [];
   
+  if (context.type === 'bookmark') {
+    items.push({ icon: 'open_in_new', label: 'Open in new tab', action: 'openBookmark' });
+    items.push({ icon: 'tab', label: 'Open in current tab', action: 'openBookmarkCurrent' });
+    return items;
+  } else if (context.type === 'bookmark-folder') {
+    items.push({ icon: 'open_in_browser', label: 'Open all bookmarks', action: 'openAllBookmarks' });
+    return items;
+  }
+  
   if (context.type === 'tab') {
     items.push({ icon: 'content_copy', label: 'Duplicate tab', action: 'duplicate' });
     items.push({ type: 'separator' });
@@ -640,6 +774,42 @@ async function handleMenuAction(action) {
   if (!context) return;
   
   switch (action) {
+    case 'openBookmark': {
+      if (context.node.data.url) {
+        await chrome.runtime.sendMessage({ type: 'OPEN_BOOKMARK', url: context.node.data.url });
+      }
+      break;
+    }
+    case 'openBookmarkCurrent': {
+      if (context.node.data.url) {
+        const [currentTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (currentTab) {
+          await chrome.tabs.update(currentTab.id, { url: context.node.data.url });
+        }
+      }
+      break;
+    }
+    case 'openAllBookmarks': {
+      // Recursively collect all bookmark URLs from folder
+      const collectBookmarkUrls = (node) => {
+        const urls = [];
+        if (node.data.url) {
+          urls.push(node.data.url);
+        }
+        if (node.children) {
+          node.children.forEach(child => {
+            urls.push(...collectBookmarkUrls(child));
+          });
+        }
+        return urls;
+      };
+      
+      const urls = collectBookmarkUrls(context.node);
+      for (const url of urls) {
+        await chrome.runtime.sendMessage({ type: 'OPEN_BOOKMARK', url });
+      }
+      break;
+    }
     case 'newWindow': {
       const tabIds = context.type === 'multi' 
         ? context.nodes.filter(n => !n.data.isGroup).map(n => parseInt(n.key))
@@ -799,7 +969,13 @@ document.getElementById('tree').addEventListener('contextmenu', (e) => {
   if ($node.length > 0) {
     const node = $.ui.fancytree.getNode($node[0]);
     
-    if (node.data.isGroup) {
+    if (node.data.isBookmark && !node.folder) {
+      context = { type: 'bookmark', node, nodes: [node] };
+    } else if (node.data.isBookmark && node.folder) {
+      context = { type: 'bookmark-folder', node, nodes: [node] };
+    } else if (node.data.isBookmarkFolder) {
+      context = { type: 'bookmark-folder', node, nodes: [node] };
+    } else if (node.data.isGroup) {
       context = { type: 'group', node, nodes: [node] };
     } else if (selectedNodes.size > 1 && selectedNodes.has(node)) {
       context = { type: 'multi', node, nodes: Array.from(selectedNodes) };

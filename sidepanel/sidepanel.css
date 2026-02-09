@@ -56,6 +56,39 @@
     --sys-color-outline: #8e918f;
     --sys-color-outline-variant: #444746;
   }
+  
+  /* Lighter hover background for better contrast in dark mode */
+  .fancytree-container .fancytree-node:hover span.fancytree-title {
+    background: rgba(255, 255, 255, 0.08) !important;
+  }
+  
+  /* Ensure text is always visible in dark mode */
+  .fancytree-container .fancytree-title,
+  .tab-title-text,
+  .bookmark-title-text {
+    color: #e3e3e3 !important;
+  }
+  
+  /* Ensure favicon and icons are visible on hover */
+  .fancytree-container .fancytree-node:hover .tab-favicon,
+  .fancytree-container .fancytree-node:hover .bookmark-icon {
+    opacity: 1 !important;
+  }
+  
+  /* Ensure close button is visible on hover */
+  .fancytree-container .fancytree-node:hover .tab-close {
+    color: #e3e3e3 !important;
+  }
+  
+  /* Override for active and selected states */
+  .active-tab .tab-title-text {
+    color: #c2e7ff !important;
+  }
+  
+  .fancytree-active .tab-title-text,
+  .multi-selected .tab-title-text {
+    color: #e8def8 !important;
+  }
 }
 
 html,
@@ -235,6 +268,33 @@ ul.fancytree-container li {
 /* Also hide the list item to be safe and remove spacing */
 ul.fancytree-container li.fancytree-hide {
   display: none !important;
+  height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  overflow: hidden !important;
+}
+
+/* CRITICAL: Force hide ALL children of hidden list items */
+ul.fancytree-container li.fancytree-hide * {
+  display: none !important;
+  visibility: hidden !important;
+}
+
+/* Force hide group parent LI when it has fancytree-hide */
+ul.fancytree-container li.group-parent-li.fancytree-hide {
+  display: none !important;
+  height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  overflow: hidden !important;
+}
+
+/* Force hide all descendants */
+ul.fancytree-container li.group-parent-li.fancytree-hide * {
+  display: none !important;
+  visibility: hidden !important;
 }
 
 /* The clickable content area (icon + text + badge) */
@@ -263,11 +323,23 @@ ul.fancytree-container li.fancytree-hide {
   background: var(--sys-color-surface-hover);
 }
 
+/* Ensure text is visible on hover in both light and dark mode */
+.fancytree-container .fancytree-node:hover span.fancytree-title,
+.fancytree-container .fancytree-node:hover .tab-title-text,
+.fancytree-container .fancytree-node:hover .bookmark-title-text {
+  color: var(--sys-color-on-surface) !important;
+}
+
 /* Active Tab State */
 .active-tab .fancytree-title {
   background: var(--sys-color-primary-container) !important;
   color: var(--sys-color-on-primary-container) !important;
   font-weight: 500;
+}
+
+/* Ensure all text elements in active tab use the correct color */
+.active-tab .tab-title-text {
+  color: var(--sys-color-on-primary-container) !important;
 }
 
 /* Selected Node */
@@ -277,10 +349,97 @@ ul.fancytree-container li.fancytree-hide {
   color: var(--sys-color-on-secondary-container) !important;
 }
 
+/* Ensure all text elements in selected nodes use the correct color */
+.fancytree-active .tab-title-text,
+.multi-selected .tab-title-text {
+  color: var(--sys-color-on-secondary-container) !important;
+}
+
 /* --- Group Card Styling --- */
 
 /* The Header Row */
 /* --- Group Card Styling --- */
+
+/* --- Group Card Styling --- */
+
+/* Bookmarks Root Folder Styling */
+.bookmarks-root-header {
+  background: transparent !important;
+  margin-top: 12px;
+  padding-top: 8px !important;
+  border-top: 1px solid var(--sys-color-outline-variant);
+}
+
+.bookmarks-root-header .fancytree-title {
+  background: transparent !important;
+  color: var(--sys-color-on-surface-variant) !important;
+  font-weight: 500;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 4px 8px !important;
+  cursor: pointer;
+}
+
+.bookmarks-root-header:hover .fancytree-title {
+  background: transparent !important;
+}
+
+.bookmarks-root-header .fancytree-expander {
+  opacity: 0.6;
+}
+
+/* Individual Bookmark Nodes */
+.bookmark-node .fancytree-title {
+  background: transparent;
+  color: var(--sys-color-on-surface);
+  transition: background-color 0.15s ease;
+}
+
+.bookmark-node:hover .fancytree-title {
+  background: var(--sys-color-surface-hover) !important;
+}
+
+.bookmark-node .bookmark-icon {
+  color: #f9ab00; /* Chrome's bookmark gold */
+  margin-right: 12px;
+  flex-shrink: 0;
+}
+
+.bookmark-node .bookmark-title-text {
+  flex: 1;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  padding-right: 8px;
+  line-height: var(--row-height);
+  color: var(--sys-color-on-surface);
+}
+
+/* Bookmark folders (nested) */
+.bookmark-node.fancytree-folder .bookmark-icon {
+  color: var(--sys-color-on-surface-variant);
+}
+
+/* Prevent bookmark nodes from showing active/selected states like tabs */
+.bookmark-node.fancytree-active .fancytree-title,
+.bookmark-node.fancytree-selected .fancytree-title {
+  background: var(--sys-color-surface-hover) !important;
+  color: var(--sys-color-on-surface) !important;
+}
+
+/* Dark mode adjustments */
+@media (prefers-color-scheme: dark) {
+  .bookmarks-root-header {
+    border-top-color: var(--sys-color-outline-variant);
+  }
+  
+  .bookmark-node .bookmark-icon {
+    color: #fdd663; /* Lighter gold for dark mode */
+  }
+}
 
 /* Fix: Ensure borders and padding don't expand width beyond 100%, causing right-side cutoff */
 #tree * {
@@ -298,6 +457,17 @@ ul.fancytree-container li.fancytree-hide {
   border: 1px solid var(--group-color, #5f6368) !important;
   /* Fix: Solid color prevents gaps */
   padding-left: 4px !important;
+}
+
+/* CRITICAL: Hide group header completely when filtered out */
+#tree li.group-parent-li.fancytree-hide>span.fancytree-node,
+#tree li.group-parent-li>span.fancytree-node.fancytree-hide {
+  display: none !important;
+  visibility: hidden !important;
+  height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
 }
 
 /* When expanded, flatten bottom corners and remove margin to connect with body */
@@ -343,6 +513,12 @@ ul.fancytree-container li.fancytree-hide {
   border: none !important;
 }
 
+/* CRITICAL: Hide group UL when the group header span has fancytree-hide */
+#tree li.group-parent-li > span.fancytree-node.fancytree-hide ~ ul {
+  display: none !important;
+  border: none !important;
+}
+
 /* The Body (Children Container) */
 #tree li.group-parent-li>ul {
   border: 2px solid var(--group-color, #5f6368);
@@ -357,6 +533,37 @@ ul.fancytree-container li.fancytree-hide {
   /* Very subtle tint */
   overflow: hidden;
   /* Fix: Clip children (tabs) that might be too wide or unrounded */
+}
+
+/* CRITICAL: Override the border for empty groups - MUST come after the border rule */
+#tree li.group-parent-li.empty-group > ul {
+  display: none !important;
+  border: none !important;
+}
+
+/* CRITICAL: Hide the UL (children container with border) when ALL children are hidden */
+#tree li.group-parent-li>ul:not(:has(li:not(.fancytree-hide))) {
+  display: none !important;
+  height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+}
+
+/* Hide group container when parent LI is hidden by filter */
+#tree li.group-parent-li.fancytree-hide>ul,
+#tree li.group-parent-li.fancytree-hide {
+  display: none !important;
+  visibility: hidden !important;
+  height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+}
+
+/* Also ensure the entire LI is hidden when it has fancytree-hide class */
+#tree li.fancytree-hide {
+  display: none !important;
 }
 
 /* Expander Icon White */
@@ -492,6 +699,7 @@ ul.fancytree-container li.fancytree-hide {
   padding-right: 8px;
   line-height: var(--row-height);
   /* Vertically center */
+  color: var(--sys-color-on-surface);
 }
 
 /* Close Button Container */

@@ -8,7 +8,8 @@
     "sidePanel",
     "storage",
     "tabGroups",
-    "favicon"
+    "favicon",
+    "bookmarks"
   ],
   "host_permissions": [
     "<all_urls>"
