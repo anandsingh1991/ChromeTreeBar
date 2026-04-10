@@ -30,6 +30,32 @@
       <span class="material-icons">auto_awesome</span>
       <span>Organize</span>
     </button>
+    <button id="btn-settings" class="settings-btn">
+      <span class="material-icons">settings</span>
+    </button>
+  </div>
+
+  <!-- Settings Menu -->
+  <div id="settings-menu" class="settings-menu" style="display: none;">
+    <div class="settings-row">
+      <span class="settings-row-label">Appearance</span>
+      <div class="theme-segmented-control">
+        <button class="theme-option" data-theme="light" title="Light theme">
+          <span class="material-icons">light_mode</span>
+        </button>
+        <button class="theme-option" data-theme="dark" title="Dark theme">
+          <span class="material-icons">dark_mode</span>
+        </button>
+        <button class="theme-option active" data-theme="auto" title="Auto (follow system)">
+          <span class="material-icons">brightness_auto</span>
+        </button>
+      </div>
+    </div>
+    <div class="settings-separator"></div>
+    <div class="settings-item" id="settings-about">
+      <span class="material-icons">info</span>
+      <span>About ChromeTreeBar</span>
+    </div>
   </div>
 
   <!-- Context Menu -->

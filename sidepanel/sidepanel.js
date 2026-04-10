@@ -1084,6 +1084,111 @@ document.getElementById('btn-auto-organize').addEventListener('click', async () 
   await autoOrganize();
 });
 
+// =====================================================
+// SETTINGS MENU FUNCTIONALITY
+// =====================================================
+
+const settingsMenu = document.getElementById('settings-menu');
+const settingsBtn = document.getElementById('btn-settings');
+
+// Load and apply saved theme on init
+async function loadTheme() {
+  const { theme = 'auto' } = await chrome.storage.local.get('theme');
+  applyTheme(theme);
+}
+
+// Apply theme to body and update segmented control
+function applyTheme(theme) {
+  // Remove all theme classes
+  document.body.classList.remove('theme-light', 'theme-dark', 'theme-auto');
+  
+  // Add the selected theme class
+  document.body.classList.add(`theme-${theme}`);
+  
+  // Update segmented control active state
+  document.querySelectorAll('.theme-option').forEach(btn => {
+    if (btn.dataset.theme === theme) {
+      btn.classList.add('active');
+    } else {
+      btn.classList.remove('active');
+    }
+  });
+}
+
+// Toggle settings menu
+function toggleSettingsMenu() {
+  const isVisible = settingsMenu.style.display !== 'none';
+  
+  if (isVisible) {
+    settingsMenu.style.display = 'none';
+  } else {
+    // Position menu above the settings button, aligned to bottom-right
+    const btnRect = settingsBtn.getBoundingClientRect();
+    const menuWidth = 240; // min-width from CSS
+    const menuHeight = 100; // estimated height
+    
+    // Position above button, aligned to its right edge
+    let left = btnRect.right - menuWidth;
+    let bottom = window.innerHeight - btnRect.top + 8; // 8px gap above button
+    
+    // Ensure menu doesn't go off-screen
+    if (left < 8) left = 8;
+    
+    settingsMenu.style.left = `${left}px`;
+    settingsMenu.style.bottom = `${bottom}px`;
+    settingsMenu.style.display = 'block';
+  }
+}
+
+// Close settings menu
+function closeSettingsMenu() {
+  settingsMenu.style.display = 'none';
+}
+
+// Settings button click handler
+settingsBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  toggleSettingsMenu();
+});
+
+// Theme option click handler
+document.querySelectorAll('.theme-option').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const theme = btn.dataset.theme;
+    applyTheme(theme);
+    await chrome.storage.local.set({ theme });
+  });
+});
+
+// About menu item click handler
+document.getElementById('settings-about').addEventListener('click', () => {
+  const version = chrome.runtime.getManifest().version;
+  chrome.tabs.create({ 
+    url: `https://github.com/anandsingh1991/ChromeTreeBar#readme`
+  });
+  closeSettingsMenu();
+});
+
+// Close settings menu on outside click
+document.addEventListener('click', (e) => {
+  if (settingsMenu.style.display !== 'none' && 
+      !settingsMenu.contains(e.target) && 
+      !settingsBtn.contains(e.target)) {
+    closeSettingsMenu();
+  }
+});
+
+// Close settings menu on Escape (update existing keyboard handler)
+const originalKeydownHandler = document.onkeydown;
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && settingsMenu.style.display !== 'none') {
+    closeSettingsMenu();
+  }
+});
+
+// Initialize theme on page load
+loadTheme();
+
 /**
  * Get grouping key from URL
  * Strips www. prefix, keeps other subdomains separate

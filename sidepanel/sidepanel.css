@@ -24,6 +24,144 @@
   --row-height: 32px;
 }
 
+/* --- Theme Override Classes --- */
+/* Force Light Theme */
+body.theme-light {
+  --sys-color-background: #ffffff;
+  --sys-color-surface: #f3f3f3;
+  --sys-color-surface-hover: #e3e3e3;
+  --sys-color-on-surface: #1f1f1f;
+  --sys-color-on-surface-variant: #444746;
+
+  --sys-color-primary-container: #d3e3fd;
+  --sys-color-on-primary-container: #041e49;
+
+  --sys-color-secondary-container: #e8def8;
+  --sys-color-on-secondary-container: #1d192b;
+
+  --sys-color-outline: #747775;
+  --sys-color-outline-variant: #c4c7c5;
+}
+
+/* Light theme customizations - Override dark mode media query */
+body.theme-light .fancytree-container .fancytree-node:hover span.fancytree-title {
+  background: var(--sys-color-surface-hover) !important;
+}
+
+body.theme-light .fancytree-container .fancytree-title,
+body.theme-light .tab-title-text,
+body.theme-light .bookmark-title-text {
+  color: var(--sys-color-on-surface) !important;
+}
+
+body.theme-light .fancytree-container .fancytree-node:hover .tab-title-text,
+body.theme-light .fancytree-container .fancytree-node:hover .bookmark-title-text {
+  color: var(--sys-color-on-surface) !important;
+}
+
+body.theme-light .fancytree-container .fancytree-node:hover .tab-close {
+  color: var(--sys-color-on-surface-variant) !important;
+}
+
+body.theme-light .active-tab .tab-title-text {
+  color: var(--sys-color-on-primary-container) !important;
+}
+
+body.theme-light .fancytree-active .tab-title-text,
+body.theme-light .multi-selected .tab-title-text {
+  color: var(--sys-color-on-secondary-container) !important;
+}
+
+body.theme-light .bookmark-node .bookmark-icon {
+  color: #f9ab00;
+}
+
+body.theme-light .bookmarks-root-header {
+  border-top-color: var(--sys-color-outline-variant);
+}
+
+body.theme-light .tab-close:hover {
+  background-color: rgba(0, 0, 0, 0.1);
+}
+
+body.theme-light .context-menu,
+body.theme-light .settings-menu {
+  box-shadow: 0 2px 6px 2px rgba(0, 0, 0, 0.15), 0 1px 2px 0 rgba(0, 0, 0, 0.3);
+}
+
+body.theme-light .group-dialog {
+  box-shadow: 0 4px 8px 3px rgba(0, 0, 0, 0.15), 0 1px 3px 0 rgba(0, 0, 0, 0.3);
+}
+
+/* Force Dark Theme */
+body.theme-dark {
+  --sys-color-background: #1e1f20;
+  --sys-color-surface: #2b2b2b;
+  --sys-color-surface-hover: #3c3d40;
+  --sys-color-on-surface: #e3e3e3;
+  --sys-color-on-surface-variant: #c4c7c5;
+
+  --sys-color-primary-container: #004a77;
+  --sys-color-on-primary-container: #c2e7ff;
+
+  --sys-color-secondary-container: #4a4458;
+  --sys-color-on-secondary-container: #e8def8;
+
+  --sys-color-outline: #8e918f;
+  --sys-color-outline-variant: #444746;
+}
+
+/* Dark theme customizations - Applied when body.theme-dark */
+body.theme-dark .fancytree-container .fancytree-node:hover span.fancytree-title {
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+
+body.theme-dark .fancytree-container .fancytree-title,
+body.theme-dark .tab-title-text,
+body.theme-dark .bookmark-title-text {
+  color: #e3e3e3 !important;
+}
+
+body.theme-dark .fancytree-container .fancytree-node:hover .tab-favicon,
+body.theme-dark .fancytree-container .fancytree-node:hover .bookmark-icon {
+  opacity: 1 !important;
+}
+
+body.theme-dark .fancytree-container .fancytree-node:hover .tab-close {
+  color: #e3e3e3 !important;
+}
+
+body.theme-dark .active-tab .tab-title-text {
+  color: #c2e7ff !important;
+}
+
+body.theme-dark .fancytree-active .tab-title-text,
+body.theme-dark .multi-selected .tab-title-text {
+  color: #e8def8 !important;
+}
+
+body.theme-dark .bookmark-node .bookmark-icon {
+  color: #fdd663;
+}
+
+body.theme-dark .tab-close:hover {
+  background-color: rgba(255, 255, 255, 0.2);
+}
+
+body.theme-dark .context-menu,
+body.theme-dark .settings-menu {
+  box-shadow: 0 2px 6px 2px rgba(0, 0, 0, 0.3), 0 1px 2px 0 rgba(0, 0, 0, 0.5);
+}
+
+body.theme-dark .group-dialog {
+  box-shadow: 0 4px 8px 3px rgba(0, 0, 0, 0.3), 0 1px 3px 0 rgba(0, 0, 0, 0.5);
+}
+
+/* Auto Theme uses media query (default behavior) */
+body.theme-auto {
+  /* No overrides, let @media (prefers-color-scheme: dark) handle it below */
+}
+
 /* --- Root Drop Zone Indicator --- */
 /* When dragging to the far left, show a visual indicator */
 #tree.root-drop-zone-active {
@@ -40,7 +178,7 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
+  body.theme-auto {
     --sys-color-background: #1e1f20;
     --sys-color-surface: #2b2b2b;
     --sys-color-surface-hover: #3c3d40;
@@ -58,35 +196,35 @@
   }
   
   /* Lighter hover background for better contrast in dark mode */
-  .fancytree-container .fancytree-node:hover span.fancytree-title {
+  body.theme-auto .fancytree-container .fancytree-node:hover span.fancytree-title {
     background: rgba(255, 255, 255, 0.08) !important;
   }
   
   /* Ensure text is always visible in dark mode */
-  .fancytree-container .fancytree-title,
-  .tab-title-text,
-  .bookmark-title-text {
+  body.theme-auto .fancytree-container .fancytree-title,
+  body.theme-auto .tab-title-text,
+  body.theme-auto .bookmark-title-text {
     color: #e3e3e3 !important;
   }
   
   /* Ensure favicon and icons are visible on hover */
-  .fancytree-container .fancytree-node:hover .tab-favicon,
-  .fancytree-container .fancytree-node:hover .bookmark-icon {
+  body.theme-auto .fancytree-container .fancytree-node:hover .tab-favicon,
+  body.theme-auto .fancytree-container .fancytree-node:hover .bookmark-icon {
     opacity: 1 !important;
   }
   
   /* Ensure close button is visible on hover */
-  .fancytree-container .fancytree-node:hover .tab-close {
+  body.theme-auto .fancytree-container .fancytree-node:hover .tab-close {
     color: #e3e3e3 !important;
   }
   
   /* Override for active and selected states */
-  .active-tab .tab-title-text {
+  body.theme-auto .active-tab .tab-title-text {
     color: #c2e7ff !important;
   }
   
-  .fancytree-active .tab-title-text,
-  .multi-selected .tab-title-text {
+  body.theme-auto .fancytree-active .tab-title-text,
+  body.theme-auto .multi-selected .tab-title-text {
     color: #e8def8 !important;
   }
 }
@@ -432,11 +570,11 @@ ul.fancytree-container li.group-parent-li.fancytree-hide * {
 
 /* Dark mode adjustments */
 @media (prefers-color-scheme: dark) {
-  .bookmarks-root-header {
+  body.theme-auto .bookmarks-root-header {
     border-top-color: var(--sys-color-outline-variant);
   }
   
-  .bookmark-node .bookmark-icon {
+  body.theme-auto .bookmark-node .bookmark-icon {
     color: #fdd663; /* Lighter gold for dark mode */
   }
 }
@@ -728,7 +866,7 @@ ul.fancytree-container li.group-parent-li.fancytree-hide * {
 }
 
 @media (prefers-color-scheme: dark) {
-  .tab-close:hover {
+  body.theme-auto .tab-close:hover {
     background-color: rgba(255, 255, 255, 0.2);
   }
 }
@@ -841,11 +979,11 @@ ul.fancytree-container li.group-parent-li.fancytree-hide * {
 }
 
 @media (prefers-color-scheme: dark) {
-  .context-menu {
+  body.theme-auto .context-menu {
     box-shadow: 0 2px 6px 2px rgba(0, 0, 0, 0.3), 0 1px 2px 0 rgba(0, 0, 0, 0.5);
   }
   
-  .group-dialog {
+  body.theme-auto .group-dialog {
     box-shadow: 0 4px 8px 3px rgba(0, 0, 0, 0.3), 0 1px 3px 0 rgba(0, 0, 0, 0.5);
   }
 }
@@ -860,6 +998,7 @@ ul.fancytree-container li.group-parent-li.fancytree-hide * {
   background: var(--sys-color-background);
   border-top: 1px solid var(--sys-color-outline-variant);
   flex-shrink: 0;
+  position: relative;
 }
 
 .action-btn {
@@ -893,4 +1032,136 @@ ul.fancytree-container li.group-parent-li.fancytree-hide * {
 
 .action-btn:hover .material-icons {
   color: var(--sys-color-on-surface);
+}
+
+/* Settings Button - Icon only, positioned to the right */
+.settings-btn {
+  position: absolute;
+  right: 12px;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--sys-color-on-surface-variant);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.settings-btn:hover {
+  background: var(--sys-color-surface-hover);
+  color: var(--sys-color-on-surface);
+}
+
+.settings-btn:active {
+  background: var(--sys-color-outline-variant);
+}
+
+.settings-btn .material-icons {
+  font-size: 20px;
+}
+
+/* --- Settings Menu Styling --- */
+.settings-menu {
+  position: fixed;
+  z-index: 10001;
+  min-width: 240px;
+  background: var(--sys-color-surface);
+  border-radius: 8px;
+  box-shadow: 0 2px 6px 2px rgba(0, 0, 0, 0.15), 0 1px 2px 0 rgba(0, 0, 0, 0.3);
+  padding: 8px 0;
+  overflow: hidden;
+}
+
+/* Settings Row - Label + Control */
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  gap: 16px;
+}
+
+.settings-row-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--sys-color-on-surface);
+}
+
+/* Theme Segmented Control - iOS Style */
+.theme-segmented-control {
+  display: flex;
+  background: var(--sys-color-background);
+  border: 1px solid var(--sys-color-outline-variant);
+  border-radius: 20px;
+  padding: 2px;
+  gap: 2px;
+}
+
+.theme-option {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 18px;
+  background: transparent;
+  color: var(--sys-color-on-surface-variant);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  min-width: 32px;
+}
+
+.theme-option .material-icons {
+  font-size: 18px;
+}
+
+.theme-option:hover:not(.active) {
+  background: var(--sys-color-surface-hover);
+  color: var(--sys-color-on-surface);
+}
+
+.theme-option.active {
+  background: var(--sys-color-primary-container);
+  color: var(--sys-color-on-primary-container);
+}
+
+/* Settings Item - Clickable row like context menu items */
+.settings-item {
+  display: flex;
+  align-items: center;
+  padding: 8px 16px;
+  cursor: pointer;
+  color: var(--sys-color-on-surface);
+  font-size: 13px;
+  transition: background-color 0.1s ease;
+}
+
+.settings-item:hover {
+  background: var(--sys-color-surface-hover);
+}
+
+.settings-item .material-icons {
+  font-size: 18px;
+  margin-right: 12px;
+  color: var(--sys-color-on-surface-variant);
+}
+
+.settings-separator {
+  height: 1px;
+  background: var(--sys-color-outline-variant);
+  margin: 4px 0;
+}
+
+@media (prefers-color-scheme: dark) {
+  body.theme-auto .settings-menu {
+    box-shadow: 0 2px 6px 2px rgba(0, 0, 0, 0.3), 0 1px 2px 0 rgba(0, 0, 0, 0.5);
+  }
 }
