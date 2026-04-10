@@ -112,8 +112,15 @@ async function initTree() {
   // Store bookmarks globally for search
   window.bookmarksData = bookmarksResponse.bookmarks;
 
+  // Get current window and filter tree to show only current window's tabs
+  const currentWindow = await chrome.windows.getCurrent();
+  const currentWindowId = currentWindow.id;
+
+  // Filter the tree to valid nodes for THIS window only
+  const filteredTree = filterNodesByWindow(tabsResponse.tree, currentWindowId);
+
   // Initially show only tabs (no bookmarks)
-  const combinedTree = tabsResponse.tree;
+  const combinedTree = filteredTree;
 
   tree = $('#tree').fancytree({
     extensions: ['dnd5', 'filter'],
@@ -1226,4 +1233,9 @@ async function autoOrganize() {
   }
   
   console.log(`Auto-organize: Created ${groupsCreated} new groups, added tabs to ${tabsAddedToExisting} existing`);
+  
+  // Force immediate reload after auto-organize completes
+  // This ensures the view reflects the new group structure right away
+  // without waiting for Chrome events to propagate
+  reloadTree();
 }
