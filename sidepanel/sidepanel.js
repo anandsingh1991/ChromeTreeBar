@@ -1178,19 +1178,32 @@ function toggleSettingsMenu() {
   } else {
     // Position menu above the settings button, aligned to bottom-right
     const btnRect = settingsBtn.getBoundingClientRect();
-    const menuWidth = 240; // min-width from CSS
-    const menuHeight = 100; // estimated height
     
-    // Position above button, aligned to its right edge
-    let left = btnRect.right - menuWidth;
+    // Show menu invisibly to measure its actual width
+    settingsMenu.style.display = 'block';
+    settingsMenu.style.opacity = '0';
+    settingsMenu.style.visibility = 'hidden';
+    
+    // Get actual dimensions after content is rendered
+    const menuRect = settingsMenu.getBoundingClientRect();
+    const menuWidth = menuRect.width;
+    
+    // Position above button, with menu's RIGHT edge aligned to button's RIGHT edge
+    let right = window.innerWidth - btnRect.right;
     let bottom = window.innerHeight - btnRect.top + 8; // 8px gap above button
     
-    // Ensure menu doesn't go off-screen
-    if (left < 8) left = 8;
+    // Ensure menu doesn't go off-screen (left edge)
+    let left = btnRect.right - menuWidth;
+    if (left < 8) {
+      left = 8;
+      right = window.innerWidth - left - menuWidth;
+    }
     
-    settingsMenu.style.left = `${left}px`;
+    settingsMenu.style.right = `${right}px`;
+    settingsMenu.style.left = '';
     settingsMenu.style.bottom = `${bottom}px`;
-    settingsMenu.style.display = 'block';
+    settingsMenu.style.opacity = '';
+    settingsMenu.style.visibility = '';
     
     // Trigger animation by adding class after display is set
     setTimeout(() => settingsMenu.classList.add('show'), 0);
@@ -1221,6 +1234,22 @@ document.querySelectorAll('.theme-option').forEach(btn => {
     applyTheme(theme);
     await chrome.storage.local.set({ theme });
   });
+});
+
+// Panel position menu item click handler
+document.getElementById('settings-panel-position').addEventListener('click', () => {
+  chrome.tabs.create({ 
+    url: 'chrome://settings/appearance#:~:text=side%20panel%20position'
+  });
+  closeSettingsMenu();
+});
+
+// Request feature / Report bug menu item click handler
+document.getElementById('settings-report-bug').addEventListener('click', () => {
+  chrome.tabs.create({ 
+    url: 'https://github.com/anandsingh1991/ChromeTreeBar/issues/new/choose'
+  });
+  closeSettingsMenu();
 });
 
 // About menu item click handler

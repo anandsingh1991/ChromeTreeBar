@@ -1089,6 +1089,7 @@ ul.fancytree-container li.group-parent-li.fancytree-hide * {
 .settings-menu {
   position: fixed;
   z-index: 10001;
+  width: max-content;
   min-width: 240px;
   background: var(--sys-color-surface);
   border-radius: 8px;
@@ -1113,13 +1114,14 @@ ul.fancytree-container li.group-parent-li.fancytree-hide * {
   align-items: center;
   justify-content: space-between;
   padding: 8px 16px;
-  gap: 16px;
+  gap: 8px;
 }
 
 .settings-row-label {
   font-size: 13px;
   font-weight: 500;
   color: var(--sys-color-on-surface);
+  flex-shrink: 0;
 }
 
 /* Theme Segmented Control - iOS Style */
@@ -1167,11 +1169,13 @@ ul.fancytree-container li.group-parent-li.fancytree-hide * {
 .settings-item {
   display: flex;
   align-items: center;
-  padding: 8px 16px;
+  padding: 10px 16px;
   cursor: pointer;
   color: var(--sys-color-on-surface);
   font-size: 13px;
   transition: background-color 0.1s ease;
+  white-space: nowrap;
+  gap: 22px;
 }
 
 .settings-item:hover {
@@ -1180,8 +1184,11 @@ ul.fancytree-container li.group-parent-li.fancytree-hide * {
 
 .settings-item .material-icons {
   font-size: 18px;
-  margin-right: 12px;
+  margin-right: 0;
   color: var(--sys-color-on-surface-variant);
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
 }
 
 .settings-separator {

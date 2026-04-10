@@ -10,6 +10,7 @@ npm-debug.log
 
 # Temporary
 *.log
+*.zip
 # Local documentation files - not tracked in git
 PUBLISHING_GUIDE.md
 PERMISSION_JUSTIFICATIONS.md
