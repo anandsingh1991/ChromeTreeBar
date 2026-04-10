@@ -685,12 +685,22 @@ let editingGroupContext = null; // Store context when editing a group
 
 // Close context menu and group dialog
 function closeContextMenu() {
-  contextMenu.style.display = 'none';
+  contextMenu.classList.remove('show');
+  setTimeout(() => {
+    if (!contextMenu.classList.contains('show')) {
+      contextMenu.style.display = 'none';
+    }
+  }, 100); // Match context menu transition duration
   contextMenuTarget = null;
 }
 
 function closeGroupDialog() {
-  groupDialog.style.display = 'none';
+  groupDialog.classList.remove('show');
+  setTimeout(() => {
+    if (!groupDialog.classList.contains('show')) {
+      groupDialog.style.display = 'none';
+    }
+  }, 150); // Match group dialog transition duration
   groupNameInput.value = '';
   pendingGroupTabIds = [];
   document.querySelectorAll('.color-option').forEach(el => el.classList.remove('selected'));
@@ -698,7 +708,12 @@ function closeGroupDialog() {
 
 // Position menu within viewport bounds
 function positionElement(element, x, y) {
+  // First set display to get accurate dimensions
   element.style.display = 'block';
+  element.style.left = `${x}px`;
+  element.style.top = `${y}px`;
+  
+  // Now get accurate rect with current position
   const rect = element.getBoundingClientRect();
   const viewportWidth = window.innerWidth;
   const viewportHeight = window.innerHeight;
@@ -706,15 +721,22 @@ function positionElement(element, x, y) {
   let finalX = x;
   let finalY = y;
   
-  if (x + rect.width > viewportWidth) {
+  // Adjust if going off right edge
+  if (rect.right > viewportWidth) {
     finalX = viewportWidth - rect.width - 8;
   }
-  if (y + rect.height > viewportHeight) {
+  
+  // Adjust if going off bottom edge
+  if (rect.bottom > viewportHeight) {
     finalY = viewportHeight - rect.height - 8;
   }
   
+  // Apply final position
   element.style.left = `${Math.max(8, finalX)}px`;
   element.style.top = `${Math.max(8, finalY)}px`;
+  
+  // Trigger animation by adding class after display is set
+  setTimeout(() => element.classList.add('show'), 0);
 }
 
 // Build menu items based on context
@@ -930,14 +952,46 @@ async function handleMenuAction(action) {
 }
 
 // Show group dialog
-function showGroupDialog(x, y, isEdit = false, currentColor = 'grey') {
+function showGroupDialog(x, y, isEdit = false, currentColor = null) {
   closeContextMenu();
   positionElement(groupDialog, x, y);
-  groupNameInput.focus();
+  
+  // Focus input after animation starts
+  setTimeout(() => groupNameInput.focus(), 50);
+  
+  // If no color specified (creating new group), use smart color selection
+  let selectedColor = currentColor;
+  if (!selectedColor) {
+    // Get colors already in use by existing groups and count total groups
+    const rootNode = tree.fancytree('getRootNode');
+    const rootChildren = rootNode.children || [];
+    const usedColors = new Set();
+    let groupCount = 0;
+    rootChildren.forEach(node => {
+      if (node.data.isGroup) {
+        groupCount++;
+        if (node.data.color) {
+          usedColors.add(node.data.color);
+        }
+      }
+    });
+    
+    // All available colors
+    const allColors = ['grey', 'blue', 'red', 'yellow', 'green', 'pink', 'purple', 'cyan', 'orange'];
+    
+    // Filter to unused colors
+    const availableColors = allColors.filter(c => !usedColors.has(c));
+    
+    // Use group count to rotate through available colors for consistent distribution
+    const colorPalette = availableColors.length > 0 ? availableColors : allColors;
+    selectedColor = colorPalette[groupCount % colorPalette.length];
+    
+    console.log('Group dialog: Groups:', groupCount, '| Used colors:', Array.from(usedColors), '| Selected:', selectedColor);
+  }
   
   // Clear previous selection and select the appropriate color
   document.querySelectorAll('.color-option').forEach(el => el.classList.remove('selected'));
-  const colorToSelect = document.querySelector(`.color-option[data-color="${currentColor}"]`);
+  const colorToSelect = document.querySelector(`.color-option[data-color="${selectedColor}"]`);
   if (colorToSelect) {
     colorToSelect.classList.add('selected');
   }
@@ -1039,18 +1093,18 @@ groupNameInput.addEventListener('keydown', (e) => {
 // Click outside to close - close context menu on ANY click outside the menu
 document.addEventListener('click', (e) => {
   // Close context menu if clicking anywhere outside of it
-  if (contextMenu.style.display !== 'none' && !contextMenu.contains(e.target)) {
+  if (contextMenu.classList.contains('show') && !contextMenu.contains(e.target)) {
     closeContextMenu();
   }
   // Close group dialog if clicking outside both dialog and context menu
-  if (groupDialog.style.display !== 'none' && !groupDialog.contains(e.target) && !contextMenu.contains(e.target)) {
+  if (groupDialog.classList.contains('show') && !groupDialog.contains(e.target) && !contextMenu.contains(e.target)) {
     closeGroupDialog();
   }
 });
 
 // Also close context menu on mousedown for more responsive feel
 document.addEventListener('mousedown', (e) => {
-  if (contextMenu.style.display !== 'none' && !contextMenu.contains(e.target)) {
+  if (contextMenu.classList.contains('show') && !contextMenu.contains(e.target)) {
     closeContextMenu();
   }
 });
@@ -1062,7 +1116,7 @@ document.addEventListener('keydown', (e) => {
     closeGroupDialog();
   }
   // Enter key to confirm group dialog (works even when focus is on color circles)
-  if (e.key === 'Enter' && groupDialog.style.display !== 'none') {
+  if (e.key === 'Enter' && groupDialog.classList.contains('show')) {
     e.preventDefault();
     const selectedColor = document.querySelector('.color-option.selected');
     const color = selectedColor ? selectedColor.dataset.color : 'grey';
@@ -1117,10 +1171,10 @@ function applyTheme(theme) {
 
 // Toggle settings menu
 function toggleSettingsMenu() {
-  const isVisible = settingsMenu.style.display !== 'none';
+  const isVisible = settingsMenu.classList.contains('show');
   
   if (isVisible) {
-    settingsMenu.style.display = 'none';
+    closeSettingsMenu();
   } else {
     // Position menu above the settings button, aligned to bottom-right
     const btnRect = settingsBtn.getBoundingClientRect();
@@ -1137,12 +1191,21 @@ function toggleSettingsMenu() {
     settingsMenu.style.left = `${left}px`;
     settingsMenu.style.bottom = `${bottom}px`;
     settingsMenu.style.display = 'block';
+    
+    // Trigger animation by adding class after display is set
+    setTimeout(() => settingsMenu.classList.add('show'), 0);
   }
 }
 
 // Close settings menu
 function closeSettingsMenu() {
-  settingsMenu.style.display = 'none';
+  settingsMenu.classList.remove('show');
+  // Wait for animation to complete before hiding
+  setTimeout(() => {
+    if (!settingsMenu.classList.contains('show')) {
+      settingsMenu.style.display = 'none';
+    }
+  }, 150); // Match transition duration
 }
 
 // Settings button click handler
@@ -1171,7 +1234,7 @@ document.getElementById('settings-about').addEventListener('click', () => {
 
 // Close settings menu on outside click
 document.addEventListener('click', (e) => {
-  if (settingsMenu.style.display !== 'none' && 
+  if (settingsMenu.classList.contains('show') && 
       !settingsMenu.contains(e.target) && 
       !settingsBtn.contains(e.target)) {
     closeSettingsMenu();
@@ -1181,7 +1244,7 @@ document.addEventListener('click', (e) => {
 // Close settings menu on Escape (update existing keyboard handler)
 const originalKeydownHandler = document.onkeydown;
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && settingsMenu.style.display !== 'none') {
+  if (e.key === 'Escape' && settingsMenu.classList.contains('show')) {
     closeSettingsMenu();
   }
 });
@@ -1287,8 +1350,24 @@ async function autoOrganize() {
   });
   console.log('Auto-organize: domainMap:', Object.keys(domainMap));
   
+  // Get colors already in use by existing groups
+  const usedColors = new Set();
+  rootChildren.forEach(node => {
+    if (node.data.isGroup && node.data.color) {
+      usedColors.add(node.data.color);
+    }
+  });
+  
   // Chrome's tab group colors in sequence
-  const colors = ['grey', 'blue', 'red', 'yellow', 'green', 'pink', 'purple', 'cyan', 'orange'];
+  const allColors = ['grey', 'blue', 'red', 'yellow', 'green', 'pink', 'purple', 'cyan', 'orange'];
+  
+  // Filter to unused colors, fallback to all if all are used
+  const availableColors = allColors.filter(c => !usedColors.has(c));
+  const colors = availableColors.length > 0 ? availableColors : allColors;
+  
+  console.log('Auto-organize: Used colors:', Array.from(usedColors));
+  console.log('Auto-organize: Available colors:', colors);
+  
   let colorIndex = 0;
   let groupsCreated = 0;
   let tabsAddedToExisting = 0;

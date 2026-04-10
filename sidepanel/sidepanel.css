@@ -881,6 +881,16 @@ ul.fancytree-container li.group-parent-li.fancytree-hide * {
   box-shadow: 0 2px 6px 2px rgba(0, 0, 0, 0.15), 0 1px 2px 0 rgba(0, 0, 0, 0.3);
   padding: 8px 0;
   overflow: hidden;
+  opacity: 0;
+  transform: scale(0.96) translateY(2px);
+  transition: opacity 0.1s ease, transform 0.1s ease;
+  pointer-events: none;
+}
+
+.context-menu.show {
+  opacity: 1;
+  transform: scale(1) translateY(0);
+  pointer-events: auto;
 }
 
 .context-menu-item {
@@ -918,6 +928,16 @@ ul.fancytree-container li.group-parent-li.fancytree-hide * {
   border-radius: 12px;
   box-shadow: 0 4px 8px 3px rgba(0, 0, 0, 0.15), 0 1px 3px 0 rgba(0, 0, 0, 0.3);
   padding: 12px;
+  opacity: 0;
+  transform: scale(0.95) translateY(4px);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  pointer-events: none;
+}
+
+.group-dialog.show {
+  opacity: 1;
+  transform: scale(1) translateY(0);
+  pointer-events: auto;
 }
 
 #group-name-input {
@@ -1075,6 +1095,16 @@ ul.fancytree-container li.group-parent-li.fancytree-hide * {
   box-shadow: 0 2px 6px 2px rgba(0, 0, 0, 0.15), 0 1px 2px 0 rgba(0, 0, 0, 0.3);
   padding: 8px 0;
   overflow: hidden;
+  opacity: 0;
+  transform: scale(0.95) translateY(4px);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  pointer-events: none;
+}
+
+.settings-menu.show {
+  opacity: 1;
+  transform: scale(1) translateY(0);
+  pointer-events: auto;
 }
 
 /* Settings Row - Label + Control */

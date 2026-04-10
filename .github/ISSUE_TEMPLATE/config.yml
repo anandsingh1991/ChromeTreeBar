@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 📖 Documentation
+    url: https://github.com/anandsingh1991/ChromeTreeBar#readme
+    about: Read the documentation and FAQs before reporting issues
+  - name: 🌐 Chrome Web Store
+    url: https://chromewebstore.google.com/detail/chrometreebar/lagpggegakalnfipjmknjmachimpngfg
+    about: Rate and review ChromeTreeBar on the Chrome Web Store
