@@ -33,6 +33,9 @@ Right-click any tab or group to unlock powerful actions:
 ### ⚡ Multi-Select Support
 Hold `Ctrl`/`Cmd` or `Shift` to select multiple tabs at once. You can drag and drop entire branches of tabs, or close them all with a single click.
 
+### 🎨 Theme Customization
+Choose between Light, Dark, or Auto theme to match your workflow. Access the settings menu via the gear icon to select your preferred theme. Your choice is saved and persists across sessions.
+
 ## 🔒 Privacy First
 
 Your browsing data belongs to you. ChromeTreeBar operates **entirely locally** within your browser:
@@ -68,22 +71,6 @@ ChromeTreeBar requires the following permissions:
 - **favicon** - Display website icons
 
 [Read our Privacy Policy](PRIVACY_POLICY.md)
-
-## 📝 Version History
-
-### v1.0.1 (Current)
-- Optimized permissions for faster Chrome Web Store review
-- Improved favicon loading using Chrome's internal API
-
-### v1.0.0
-- Initial release
-- Tree-style tab management
-- Native tab groups integration
-- Bookmark integration
-- Advanced search functionality
-- Drag-and-drop support
-- Context menu actions
-- Multi-select support
 
 ## 🤝 Contributing
 
