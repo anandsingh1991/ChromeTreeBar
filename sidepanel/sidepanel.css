@@ -819,6 +819,42 @@ ul.fancytree-container li.group-parent-li.fancytree-hide * {
   opacity: 1 !important;
 }
 
+/* Letter Icon Fallback - Styled circle with first letter */
+.tab-letter-icon {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 16px !important;
+  height: 16px !important;
+  min-width: 16px !important;
+  min-height: 16px !important;
+  margin-right: 12px;
+  flex-shrink: 0 !important;
+  border-radius: 50%;
+  font-size: 10px !important;
+  font-weight: 700 !important;
+  color: white !important;
+  text-transform: uppercase;
+  line-height: 1 !important;
+  user-select: none;
+  padding: 0 !important;
+  box-sizing: border-box !important;
+  text-align: center;
+  position: relative;
+}
+
+/* Ensure letter icons don't shift in different states */
+.multi-selected .tab-letter-icon,
+.fancytree-active .tab-letter-icon,
+.active-tab .tab-letter-icon {
+  opacity: 1 !important;
+  display: inline-flex !important;
+  width: 16px !important;
+  height: 16px !important;
+  min-width: 16px !important;
+  min-height: 16px !important;
+}
+
 /* Ensure multi-selection doesn't override */
 .multi-selected .tab-favicon,
 .fancytree-active .tab-favicon {

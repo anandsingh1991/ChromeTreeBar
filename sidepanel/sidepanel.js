@@ -4,6 +4,9 @@ let selectedNodes = new Set();
 const EXTENSION_ID = chrome.runtime.id; // Helper for current ID
 let reloadTimer = null;
 
+// Cache for failed favicon URLs - prevents retrying on every render
+const faviconFailureCache = new Set();
+
 function getFaviconUrl(pageUrl, directFavIconUrl = null) {
   // Priority: Use direct favIconUrl from Chrome if available (most reliable for new tabs)
   // Fallback: Use Chrome's _favicon API (requires favicon to be cached)
@@ -13,7 +16,7 @@ function getFaviconUrl(pageUrl, directFavIconUrl = null) {
   }
   
   if (!pageUrl) {
-    return ''; // or a default
+    return '';
   }
   
   // Use Chrome's _favicon helper (requires "favicon" permission)
@@ -22,6 +25,89 @@ function getFaviconUrl(pageUrl, directFavIconUrl = null) {
   url.searchParams.append('pageUrl', pageUrl);
   url.searchParams.append('size', '32');
   return url.toString();
+}
+
+function getFirstLetterFallback(url, title) {
+  // Extract first letter from domain name
+  try {
+    const urlObj = new URL(url);
+    const hostname = urlObj.hostname.replace(/^www\./, ''); // Strip www.
+    const letter = hostname.charAt(0).toUpperCase();
+    
+    // Generate a color based on the domain (consistent for same domain)
+    const hue = hostname.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) % 360;
+    const color = `hsl(${hue}, 65%, 55%)`;
+    
+    return { letter, color };
+  } catch (e) {
+    // Fallback to title if URL parsing fails
+    const letter = title ? title.charAt(0).toUpperCase() : '?';
+    return { letter, color: '#5f6368' };
+  }
+}
+
+function createFaviconElement(node) {
+  // Single unified function for creating/updating favicon elements with caching
+  const faviconUrl = getFaviconUrl(node.data.url, node.data.favIconUrl);
+  const cacheKey = faviconUrl || node.data.url;
+  
+  // Check cache BEFORE trying to load - instant letter icon for known failures
+  if (faviconFailureCache.has(cacheKey)) {
+    // This favicon previously failed - return letter icon immediately
+    const fallback = getFirstLetterFallback(node.data.url, node.title);
+    return $(`<span class="tab-favicon tab-letter-icon" style="background-color: ${fallback.color};">${fallback.letter}</span>`);
+  }
+  
+  if (!faviconUrl) {
+    // No favicon URL available - return letter icon immediately
+    const fallback = getFirstLetterFallback(node.data.url, node.title);
+    return $(`<span class="tab-favicon tab-letter-icon" style="background-color: ${fallback.color};">${fallback.letter}</span>`);
+  }
+  
+  // Try to load favicon with error handler
+  const $favicon = $(`<img class="tab-favicon" src="${faviconUrl}" alt="">`);
+  $favicon.on('error', function() {
+    // Add to cache so we don't retry this URL
+    faviconFailureCache.add(cacheKey);
+    
+    const fallback = getFirstLetterFallback(node.data.url, node.title);
+    $(this).replaceWith(
+      `<span class="tab-favicon tab-letter-icon" style="background-color: ${fallback.color};">${fallback.letter}</span>`
+    );
+  });
+  
+  return $favicon;
+}
+
+function addBookmarksToTree() {
+  if (!tree || !tree.fancytree('getTree')) return;
+  if (!window.bookmarksData) return;
+  
+  const rootNode = tree.fancytree('getTree').getRootNode();
+  const hasBookmarks = rootNode.children.some(child => child.key === 'bookmarks-root');
+  
+  if (!hasBookmarks) {
+    rootNode.addChildren({
+      key: 'bookmarks-root',
+      title: 'Bookmarks',
+      folder: true,
+      expanded: true,
+      children: window.bookmarksData,
+      data: { isBookmarkFolder: true },
+      icon: false
+    });
+  }
+}
+
+function removeBookmarksFromTree() {
+  if (!tree || !tree.fancytree('getTree')) return;
+  
+  const rootNode = tree.fancytree('getTree').getRootNode();
+  const bookmarksNode = rootNode.findFirst((node) => node.key === 'bookmarks-root');
+  
+  if (bookmarksNode) {
+    bookmarksNode.remove();
+  }
 }
 
 $(document).ready(async () => {
@@ -50,22 +136,7 @@ $(document).ready(async () => {
 
     if (query) {
       $('#clear-search').show();
-      
-      // Add bookmarks to tree when searching
-      const rootNode = treeInstance.getRootNode();
-      const hasBookmarks = rootNode.children.some(child => child.key === 'bookmarks-root');
-      
-      if (!hasBookmarks && window.bookmarksData) {
-        rootNode.addChildren({
-          key: 'bookmarks-root',
-          title: 'Bookmarks',
-          folder: true,
-          expanded: true, // Expand when searching
-          children: window.bookmarksData,
-          data: { isBookmarkFolder: true },
-          icon: false
-        });
-      }
+      addBookmarksToTree();
       
       // Filter: match title, mode="hide"
       // Returns count of matches
@@ -74,13 +145,7 @@ $(document).ready(async () => {
     } else {
       $('#clear-search').hide();
       treeInstance.clearFilter();
-      
-      // Remove bookmarks when search is cleared
-      const rootNode = treeInstance.getRootNode();
-      const bookmarksNode = rootNode.findFirst((node) => node.key === 'bookmarks-root');
-      if (bookmarksNode) {
-        bookmarksNode.remove();
-      }
+      removeBookmarksFromTree();
     }
   });
 
@@ -93,13 +158,7 @@ $(document).ready(async () => {
     $('#clear-search').hide();
     const treeInstance = tree.fancytree('getTree');
     treeInstance.clearFilter();
-    
-    // Remove bookmarks when search is cleared
-    const rootNode = treeInstance.getRootNode();
-    const bookmarksNode = rootNode.findFirst((node) => node.key === 'bookmarks-root');
-    if (bookmarksNode) {
-      bookmarksNode.remove();
-    }
+    removeBookmarksFromTree();
   }
 });
 
@@ -399,16 +458,9 @@ async function initTree() {
         return;
       }
 
-      // --- TAB RENDER (Existing) ---
-      // Create a container for content to ensure proper flex behavior
-      // Priority: Use direct favIconUrl from Chrome, fallback to _favicon API
-      const faviconUrl = getFaviconUrl(node.data.url, node.data.favIconUrl);
-      if (faviconUrl) {
-        $title.append(`<img class="tab-favicon" src="${faviconUrl}" alt="">`);
-      } else {
-        // Default globe/page icon styling using Material Icons
-        $title.append(`<span class="material-icons tab-favicon" style="font-size: 16px; color: #5f6368; display: flex; align-items: center; justify-content: center;">public</span>`);
-      }
+      // --- TAB RENDER ---
+      // Use unified favicon creation function
+      $title.append(createFaviconElement(node));
 
       // Re-add the title text (we lose the highlight markup if we just use node.title, 
       // but keeping it simple for now as per user request to fix visibility)
@@ -634,19 +686,10 @@ function updateNode(tabId, tab, changeInfo = {}) {
     const shouldUpdateFavicon = tab.url || changeInfo.favIconUrl || changeInfo.status === 'complete';
     
     if (shouldUpdateFavicon && node.data.url) {
-      // Priority: Use direct favIconUrl from Chrome, fallback to _favicon API
-      const newFaviconUrl = getFaviconUrl(node.data.url, node.data.favIconUrl);
-
-      const $fav = $(node.span).find('.tab-favicon');
-      if ($fav.is('img')) {
-        // Force reload by adding cache-busting timestamp for favicon updates
-        // This ensures the browser re-fetches from Chrome's favicon cache
-        $fav.attr('src', newFaviconUrl);
-      } else {
-        // Was a span/default, replace with img
-        $(node.span).find('.fancytree-title').prepend(`<img class="tab-favicon" src="${newFaviconUrl}" alt="">`);
-        $fav.remove(); // remove old default
-      }
+      // Replace existing favicon with new one using unified function
+      const $existingFav = $(node.span).find('.tab-favicon');
+      const $newFav = createFaviconElement(node);
+      $existingFav.replaceWith($newFav);
     }
   }
 }
