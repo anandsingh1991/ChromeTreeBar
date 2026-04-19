@@ -362,17 +362,6 @@ body {
   /* Top, Right, Bottom, Left */
 }
 
-/* ... Scrollbar Styling ... */
-
-#tree::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-  background: transparent;
-}
-
-/* ... */
-/* Check line 194 for node styles */
-
 /* --- Scrollbar Styling (Hidden/Modern) --- */
 #tree::-webkit-scrollbar {
   width: 6px;
@@ -533,12 +522,7 @@ ul.fancytree-container li.group-parent-li.fancytree-hide * {
   color: var(--sys-color-on-secondary-container) !important;
 }
 
-/* --- Group Card Styling --- */
-
-/* The Header Row */
-/* --- Group Card Styling --- */
-
-/* --- Group Card Styling --- */
+/* --- Group and Bookmarks Styling --- */
 
 /* Bookmarks Root Folder Styling */
 .bookmarks-root-header {
@@ -916,6 +900,23 @@ ul.fancytree-container li.group-parent-li.fancytree-hide * {
   color: var(--sys-color-on-surface);
 }
 
+/* Audio Indicator - Rightmost position, shifts left on hover */
+.audio-indicator {
+  font-size: 16px;
+  color: var(--sys-color-on-surface-variant);
+  margin-left: auto; /* Push to right */
+  margin-right: 4px; /* Small gap before close button */
+  flex-shrink: 0;
+  opacity: 0.7;
+  pointer-events: none; /* Not clickable - visual only */
+  transition: opacity 0.2s ease;
+}
+
+/* Show clearly on hover */
+.fancytree-container .fancytree-node:hover .audio-indicator {
+  opacity: 1;
+}
+
 /* Close Button Container */
 .tab-close {
   width: 24px;
@@ -1184,13 +1185,33 @@ ul.fancytree-container li.group-parent-li.fancytree-hide * {
   pointer-events: auto;
 }
 
-/* Settings Row - Label + Control */
+/* Settings Row - Base styles */
 .settings-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   padding: 8px 16px;
   gap: 8px;
+}
+
+/* Settings Row Appearance - Icon + Label + Controls in single row */
+.settings-row-appearance {
+  display: flex;
+  align-items: center;
+  padding: 10px 16px;
+  gap: 12px;
+}
+
+.settings-row-appearance .material-icons {
+  font-size: 18px;
+  color: var(--sys-color-on-surface-variant);
+  flex-shrink: 0;
+}
+
+.settings-row-appearance .settings-row-label {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--sys-color-on-surface);
+  margin-right: auto; /* Push theme controls to the right */
 }
 
 .settings-row-label {
@@ -1214,7 +1235,6 @@ ul.fancytree-container li.group-parent-li.fancytree-hide * {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 4px 8px;
   border: none;
   border-radius: 18px;
   background: transparent;
@@ -1251,7 +1271,7 @@ ul.fancytree-container li.group-parent-li.fancytree-hide * {
   font-size: 13px;
   transition: background-color 0.1s ease;
   white-space: nowrap;
-  gap: 22px;
+  gap: 12px;
 }
 
 .settings-item:hover {

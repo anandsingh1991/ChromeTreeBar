@@ -463,6 +463,13 @@ async function initTree() {
       // Re-add the title text
       $title.append(`<span class="tab-title-text">${node.title}</span>`);
 
+      // Audio indicator (rightmost position before close button)
+      if (node.data.audible) {
+        const audioIcon = node.data.muted ? 'volume_off' : 'volume_up';
+        const $audio = $(`<span class="audio-indicator material-icons">${audioIcon}</span>`);
+        $title.append($audio);
+      }
+
       // Close button with Material Icon 'close'
       const $close = $('<div class="tab-close"><span class="material-icons" style="font-size: 16px;">close</span></div>');
       $close.on('click', (e) => {
@@ -660,12 +667,7 @@ function updateNode(tabId, tab, changeInfo = {}) {
   if (!tree || !tree.fancytree('getTree')) return; // Guard against race condition
   const node = tree.fancytree('getNodeByKey', String(tabId));
   if (node) {
-    // Only update data, then force re-render correctly or update manually
-    // Since title/icon might change, we DO need a full render here.
-    // However, we want to ensure custom render is called.
-    // If renderTitle() is what broke it, we might need to manually update the DOM elements
-    // for title and icon too. 
-
+    // Update node data and manually update DOM elements for performance
     if (tab.title) {
       node.title = tab.title;
       $(node.span).find('.tab-title-text').text(tab.title);
@@ -679,6 +681,41 @@ function updateNode(tabId, tab, changeInfo = {}) {
     // Store direct favIconUrl from Chrome when available
     if (tab.favIconUrl) {
       node.data.favIconUrl = tab.favIconUrl;
+    }
+    
+    // Update audio state if changed
+    if (changeInfo.audible !== undefined) {
+      node.data.audible = changeInfo.audible;
+    }
+    if (changeInfo.mutedInfo !== undefined) {
+      node.data.muted = changeInfo.mutedInfo.muted;
+    }
+    
+    // Update audio indicator when audio state changes
+    if (changeInfo.audible !== undefined || changeInfo.mutedInfo !== undefined) {
+      const $title = $(node.span).find('.fancytree-title');
+      const $existingAudio = $title.find('.audio-indicator');
+      
+      if (node.data.audible) {
+        // Tab has audio - show/update indicator
+        const audioIcon = node.data.muted ? 'volume_off' : 'volume_up';
+        if ($existingAudio.length > 0) {
+          // Update existing indicator
+          $existingAudio.text(audioIcon);
+        } else {
+          // Add new indicator (insert before close button)
+          const $audio = $(`<span class="audio-indicator material-icons">${audioIcon}</span>`);
+          const $close = $title.find('.tab-close');
+          if ($close.length > 0) {
+            $audio.insertBefore($close);
+          } else {
+            $title.append($audio);
+          }
+        }
+      } else {
+        // Tab no longer has audio - remove indicator
+        $existingAudio.remove();
+      }
     }
     
     // Update favicon when URL changes OR when favIconUrl changes (page finished loading)
@@ -796,6 +833,15 @@ function buildMenuItems(context) {
   
   if (context.type === 'tab') {
     items.push({ icon: 'content_copy', label: 'Duplicate tab', action: 'duplicate' });
+    
+    // Add mute/unmute option if tab has audio
+    if (context.node.data.audible) {
+      const muteLabel = context.node.data.muted ? 'Unmute tab' : 'Mute tab';
+      const muteIcon = context.node.data.muted ? 'volume_up' : 'volume_off';
+      items.push({ type: 'separator' });
+      items.push({ icon: muteIcon, label: muteLabel, action: 'toggleMute' });
+    }
+    
     items.push({ type: 'separator' });
     items.push({ icon: 'create_new_folder', label: 'Add to new group', action: 'createGroup' });
     items.push({ type: 'separator' });
@@ -908,6 +954,12 @@ async function handleMenuAction(action) {
       const tabId = parseInt(context.node.key);
       const tab = await chrome.tabs.get(tabId);
       await chrome.tabs.update(tabId, { pinned: !tab.pinned });
+      break;
+    }
+    case 'toggleMute': {
+      const tabId = parseInt(context.node.key);
+      const currentMuted = context.node.data.muted;
+      await chrome.tabs.update(tabId, { muted: !currentMuted });
       break;
     }
     case 'createGroup': {

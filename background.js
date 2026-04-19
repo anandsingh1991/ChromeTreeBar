@@ -13,11 +13,6 @@ chrome.sidePanel
   .setPanelBehavior({ openPanelOnActionClick: true })
   .catch((error) => console.error('Error setting panel behavior:', error));
 
-// Note: chrome.action.onClicked doesn't fire when openPanelOnActionClick is true
-// Chrome handles the panel opening internally, so we can't track the exact click time
-// We can only measure from when the sidepanel script starts executing
-
-
 async function initializeTree() {
   console.log('Initializing Tree...');
   console.time('Init:Total');
@@ -85,6 +80,8 @@ async function initializeTree() {
         favIconUrl: tab.favIconUrl,
         active: tab.active,
         groupId: tab.groupId, // Storing Group ID
+        audible: tab.audible || false, // Track audio playing state
+        muted: tab.mutedInfo?.muted || false, // Track muted state
         level: 0
       });
     }
@@ -204,10 +201,7 @@ function determineParentId(tab, currentTree, prevNodeOverride = null) {
 }
 
 async function handleBufferedEvent(event) {
-  // Dispatch to appropriate handler
-  // We strictly use the internal logic, avoiding the direct listeners to prevent loops
-  // But since the listeners push to queue if isInit, we need separate implementations or carefully call logic
-  // We will extract logic to functions
+  // Dispatch buffered events to appropriate handler functions
   switch (event.type) {
     case 'created': onTabCreated(event.data); break;
     case 'removed': onTabRemoved(event.data); break;
@@ -350,6 +344,8 @@ async function onTabCreated(tab) {
     favIconUrl: tab.favIconUrl || '',
     active: tab.active,
     groupId: tab.groupId, // Initial groupId from Chrome
+    audible: tab.audible || false, // Track audio playing state
+    muted: tab.mutedInfo?.muted || false, // Track muted state
     level: 0
   });
   console.log('✅ Tab added to tabTree synchronously');
@@ -431,6 +427,8 @@ function onTabUpdated(tabId, changeInfo, tab) {
     if (changeInfo.title) node.title = changeInfo.title;
     if (changeInfo.url) node.url = changeInfo.url;
     if (changeInfo.favIconUrl) node.favIconUrl = changeInfo.favIconUrl;
+    if (changeInfo.audible !== undefined) node.audible = changeInfo.audible;
+    if (changeInfo.mutedInfo !== undefined) node.muted = changeInfo.mutedInfo.muted;
     
     // Handle group changes - moving to/from groups requires tree restructure
     if (changeInfo.groupId !== undefined) {
@@ -631,7 +629,9 @@ function buildTreeStructure() {
         url: node.url,
         active: node.active,
         favIconUrl: node.favIconUrl,
-        groupId: node.groupId // Ensure this is passed
+        groupId: node.groupId, // Ensure this is passed
+        audible: node.audible, // Pass audio state to sidepanel
+        muted: node.muted // Pass muted state to sidepanel
       }
     });
   });
