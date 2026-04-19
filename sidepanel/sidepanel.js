@@ -163,11 +163,13 @@ $(document).ready(async () => {
 });
 
 async function initTree() {
+  console.time('🕐 TOTAL: initTree');
+  
   const [tabsResponse, bookmarksResponse] = await Promise.all([
     chrome.runtime.sendMessage({ type: 'GET_TREE' }),
     chrome.runtime.sendMessage({ type: 'GET_BOOKMARKS' })
   ]);
-
+  
   // Store bookmarks globally for search
   window.bookmarksData = bookmarksResponse.bookmarks;
 
@@ -180,7 +182,7 @@ async function initTree() {
 
   // Initially show only tabs (no bookmarks)
   const combinedTree = filteredTree;
-
+  
   tree = $('#tree').fancytree({
     extensions: ['dnd5', 'filter'],
     quicksearch: true, // Enable Type-ahead
@@ -451,10 +453,6 @@ async function initTree() {
         });
         $title.append($groupClose);
 
-        // Add a "Force Expand" visual if needed, or just let standard Fancytree expander work.
-        // Fancytree expander is distinct. We might want to hide it and make the whole header clickable?
-        // For now, keep expander.
-
         return;
       }
 
@@ -462,8 +460,7 @@ async function initTree() {
       // Use unified favicon creation function
       $title.append(createFaviconElement(node));
 
-      // Re-add the title text (we lose the highlight markup if we just use node.title, 
-      // but keeping it simple for now as per user request to fix visibility)
+      // Re-add the title text
       $title.append(`<span class="tab-title-text">${node.title}</span>`);
 
       // Close button with Material Icon 'close'
@@ -519,6 +516,8 @@ async function initTree() {
       }
     }
   });
+  
+  console.timeEnd('🕐 TOTAL: initTree');
 }
 
 function toggleSelection(node) {

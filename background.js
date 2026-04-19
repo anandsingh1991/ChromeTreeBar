@@ -13,6 +13,10 @@ chrome.sidePanel
   .setPanelBehavior({ openPanelOnActionClick: true })
   .catch((error) => console.error('Error setting panel behavior:', error));
 
+// Note: chrome.action.onClicked doesn't fire when openPanelOnActionClick is true
+// Chrome handles the panel opening internally, so we can't track the exact click time
+// We can only measure from when the sidepanel script starts executing
+
 
 async function initializeTree() {
   console.log('Initializing Tree...');
@@ -115,10 +119,10 @@ async function initializeTree() {
   }
 }
 
-// Logic adapted from Reference "Link Map"
 function determineParentId(tab, currentTree, prevNodeOverride = null) {
   console.log('--- determineParentId DEBUG ---');
   console.log('Tab ID:', tab.id, '| Opener Tab ID:', tab.openerTabId, '| Type:', typeof tab.openerTabId);
+  console.log('Group ID:', tab.groupId, '| Type:', typeof tab.groupId);
   
   if (!currentTree) {
     console.log('DECISION: null (no currentTree)');
@@ -131,7 +135,15 @@ function determineParentId(tab, currentTree, prevNodeOverride = null) {
   
   console.log('URL:', tab.url, '| Pending URL:', tab.pendingUrl);
   
-  // PRIORITY 1: Explicit New Tab Check (HIGHEST PRIORITY)
+  // PRIORITY 0: Tab belongs to a group - NEVER nest it (HIGHEST PRIORITY)
+  // Groups take precedence over parent-child relationships
+  // This handles restored saved groups that have openerTabId set
+  if (tab.groupId !== undefined && tab.groupId !== null && tab.groupId > -1) {
+    console.log('DECISION: null (tab belongs to group', tab.groupId, '- groups take precedence over nesting)');
+    return null;
+  }
+  
+  // PRIORITY 1: Explicit New Tab Check
   // User explicitly opened a new tab (Ctrl+T / Cmd+T) - should ALWAYS be root
   // Chrome sets pendingUrl to 'chrome://newtab/' for explicit new tab actions
   if (url === 'chrome://newtab/' || pendingUrl === 'chrome://newtab/' ||
@@ -207,28 +219,6 @@ async function handleBufferedEvent(event) {
   }
 }
 
-// ... (saveTree, buildTreeStructure unchanged) ...
-
-// ... (listeners - onCreated, onRemoved, etc. unchanged) ...
-
-async function notifySidepanel(type, data) {
-  try {
-    // Broadcast to all listening parts of the extension (sidepanel)
-    // This is much more reliable than getViews() in MV3
-    await chrome.runtime.sendMessage({ type, ...data });
-  } catch (e) {
-    // Ignore errors if no one is listening (e.g. sidepanel closed)
-  }
-}
-
-function saveTree() {
-  const treeObj = {};
-  tabTree.forEach((node, id) => {
-    treeObj[id] = node;
-  });
-  chrome.storage.local.set({ tabTree: treeObj });
-}
-
 async function cleanupStaleTabsFromTree() {
   try {
     // Get all currently open tabs
@@ -273,38 +263,6 @@ async function cleanupStaleTabsFromTree() {
   } catch (error) {
     console.error('Error during stale tab cleanup:', error);
   }
-}
-
-function buildTreeStructure() {
-  const roots = [];
-  const nodeMap = new Map();
-
-  tabTree.forEach((node, id) => {
-    nodeMap.set(id, {
-      key: String(id),
-      title: node.title,
-      expanded: true,
-      children: [],
-      data: {
-        tabId: node.tabId,
-        windowId: node.windowId,
-        url: node.url,
-        active: node.active,
-        favIconUrl: node.favIconUrl
-      }
-    });
-  });
-
-  tabTree.forEach((node, id) => {
-    const treeNode = nodeMap.get(id);
-    if (node.parentId && nodeMap.has(node.parentId)) {
-      nodeMap.get(node.parentId).children.push(treeNode);
-    } else {
-      roots.push(treeNode);
-    }
-  });
-
-  return roots;
 }
 
 // --- Event Listeners with Buffering ---
@@ -371,14 +329,32 @@ async function onTabCreated(tab) {
   console.log('=== TAB CREATED DEBUG ===');
   console.log('Tab ID:', tab.id);
   console.log('Opener Tab ID:', tab.openerTabId, '| Type:', typeof tab.openerTabId);
+  console.log('Group ID:', tab.groupId, '| Type:', typeof tab.groupId);
   console.log('Index:', tab.index);
   console.log('URL:', tab.url);
   console.log('Pending URL:', tab.pendingUrl);
   console.log('Window ID:', tab.windowId);
-  console.log('Opener exists in tree?', tab.openerTabId ? tabTree.has(tab.openerTabId) : 'N/A (no opener)');
   console.log('Tree size at creation:', tabTree.size);
 
-  // Retrieve previous tab for context (using Chrome API for fresh state)
+  // STEP 1: Add tab to tree IMMEDIATELY (synchronously)
+  // This prevents race conditions with onTabUpdated events
+  tabTree.set(tab.id, {
+    tabId: tab.id,
+    windowId: tab.windowId,
+    index: tab.index,
+    openerTabId: tab.openerTabId,
+    parentId: null, // Will be determined below
+    children: [],
+    title: tab.title || 'New Tab',
+    url: tab.url || '',
+    favIconUrl: tab.favIconUrl || '',
+    active: tab.active,
+    groupId: tab.groupId, // Initial groupId from Chrome
+    level: 0
+  });
+  console.log('✅ Tab added to tabTree synchronously');
+
+  // STEP 2: Do async operations to determine parentId
   let prevNode = null;
   if (tab.index > 0) {
     try {
@@ -389,33 +365,32 @@ async function onTabCreated(tab) {
     } catch (e) { console.error('Error finding prev tab:', e); }
   }
 
-  const parentId = determineParentId(tab, tabTree, prevNode);
-  console.log('Final parentId assigned:', parentId);
-  console.log('=== END TAB CREATED DEBUG ===');
+  let parentId = determineParentId(tab, tabTree, prevNode);
+  console.log('Determined parentId:', parentId);
 
-  tabTree.set(tab.id, {
-    tabId: tab.id,
-    windowId: tab.windowId,
-    index: tab.index,
-    openerTabId: tab.openerTabId,
-    parentId: parentId,
-    children: [],
-    title: tab.title || 'New Tab',
-    url: tab.url || '',
-    favIconUrl: tab.favIconUrl || '',
-    active: tab.active,
-    groupId: tab.groupId,
-    level: 0
-  });
+  // STEP 3: CRITICAL - Check if groupId changed while we were doing async operations
+  // If onTabUpdated fired with a groupId change, respect that and clear parent
+  const currentNode = tabTree.get(tab.id);
+  if (currentNode.groupId > -1) {
+    console.log(`🎯 Tab ${tab.id} is in group ${currentNode.groupId}, clearing parentId`);
+    parentId = null; // Groups take precedence over nesting
+  }
 
+  // STEP 4: Update parentId and link parent-child relationship
+  currentNode.parentId = parentId;
+  
   if (parentId) {
     const parent = tabTree.get(parentId);
     if (parent) {
       if (!parent.children.includes(tab.id)) {
         parent.children.push(tab.id);
+        console.log(`🔗 Linked tab ${tab.id} as child of ${parentId}`);
       }
     }
   }
+
+  console.log('Final state - parentId:', currentNode.parentId, '| groupId:', currentNode.groupId);
+  console.log('=== END TAB CREATED DEBUG ===');
 
   saveTree();
   notifySidepanel('TAB_CREATED', { tab });
@@ -448,14 +423,47 @@ function onTabRemoved(tabId) {
 }
 
 function onTabUpdated(tabId, changeInfo, tab) {
+  console.log(`=== TAB UPDATED DEBUG === Tab ${tabId}`);
+  console.log('changeInfo:', JSON.stringify(changeInfo));
+  
   const node = tabTree.get(tabId);
   if (node) {
     if (changeInfo.title) node.title = changeInfo.title;
     if (changeInfo.url) node.url = changeInfo.url;
     if (changeInfo.favIconUrl) node.favIconUrl = changeInfo.favIconUrl;
-    if (changeInfo.groupId !== undefined) node.groupId = changeInfo.groupId; // Handle Move to/from Group
+    
+    // Handle group changes - moving to/from groups requires tree restructure
+    if (changeInfo.groupId !== undefined) {
+      const oldGroupId = node.groupId;
+      const newGroupId = changeInfo.groupId;
+      
+      console.log(`🎯 Tab ${tabId} group changed: ${oldGroupId} → ${newGroupId}`);
+      
+      node.groupId = newGroupId;
+      
+      // If tab is being added to a group (or moved between groups), un-nest it
+      if (newGroupId > -1) {
+        console.log(`📦 Adding tab ${tabId} to group ${newGroupId}, clearing parent relationship`);
+        
+        // Remove from parent's children if it was nested
+        if (node.parentId && tabTree.has(node.parentId)) {
+          const parent = tabTree.get(node.parentId);
+          parent.children = parent.children.filter(id => id !== tabId);
+          console.log(`✂️ Removed tab ${tabId} from parent ${node.parentId}'s children`);
+        }
+        // Clear parent - tab should be at root level in group
+        node.parentId = null;
+        
+        console.log(`🔄 Triggering TAB_MOVED to reload tree`);
+        // Trigger full tree reload to show updated group structure
+        notifySidepanel('TAB_MOVED', {});
+      }
+    }
+    
     saveTree();
     notifySidepanel('TAB_UPDATED', { tabId, changeInfo, tab });
+  } else {
+    console.warn(`⚠️ onTabUpdated called for tab ${tabId} but tab not in tabTree!`);
   }
 }
 
@@ -494,9 +502,6 @@ function onTabReplaced(addedTabId, removedTabId) {
 
 // --- Messaging ---
 
-// This notifySidepanel function is duplicated. Keeping the one that uses sendMessage.
-// The original instruction had two notifySidepanel functions. I'm assuming the one using sendMessage is the desired one.
-// The provided snippet also only includes the sendMessage version.
 async function notifySidepanel(type, data) {
   try {
     await chrome.runtime.sendMessage({ type, ...data });
@@ -639,11 +644,16 @@ function buildTreeStructure() {
     if (node.parentId && nodeMap.has(node.parentId)) {
       // Child of another tab -> Stay nested (Hybrid Model)
       nodeMap.get(node.parentId).children.push(treeNode);
-    } else if (node.groupId > -1 && groupNodeMap.has(node.groupId)) {
+    } else if (node.groupId !== undefined && node.groupId !== null && node.groupId > -1 && groupNodeMap.has(node.groupId)) {
       // Child of a Group -> Go into Group Folder
+      console.log(`Tab ${id} (${node.title}) -> Group ${node.groupId} | Group exists: ${groupNodeMap.has(node.groupId)}`);
       groupNodeMap.get(node.groupId).children.push(treeNode);
     } else {
       // Root Tab
+      if (node.groupId && node.groupId > -1) {
+        console.warn(`Tab ${id} (${node.title}) has groupId ${node.groupId} but group not found in groupNodeMap!`);
+        console.warn(`Available groups:`, Array.from(groupNodeMap.keys()));
+      }
       roots.push(treeNode);
     }
   });
