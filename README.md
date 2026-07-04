@@ -24,10 +24,10 @@ Looking for that one article you opened 2 hours ago? Use the built-in search bar
 
 ### 🖱️ Advanced Context Menu
 Right-click any tab or group to unlock powerful actions:
-- Duplicate tabs or open them in new windows
+- Duplicate a tab as a nested child of the original
+- Mute/unmute tabs playing audio
 - Close a tab along with all its nested children simultaneously
 - Add multiple selected tabs to a new color-coded group
-- Pin/unpin tabs with ease
 - Open entire folders of bookmarks at once
 
 ### ⚡ Multi-Select Support

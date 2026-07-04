@@ -27,6 +27,10 @@
       <span class="material-icons">auto_awesome</span>
       <span>Organize</span>
     </button>
+    <button id="btn-saved-groups" class="action-btn">
+      <span class="material-icons">grid_view</span>
+      <span>Groups</span>
+    </button>
     <button id="btn-settings" class="settings-btn">
       <span class="material-icons">settings</span>
     </button>
@@ -62,6 +66,18 @@
     <div class="settings-item" id="settings-about">
       <span class="material-icons">info</span>
       <span>About ChromeTreeBar</span>
+    </div>
+  </div>
+
+  <!-- Saved Groups Dialog -->
+  <div id="saved-groups-dialog" class="saved-groups-dialog" style="display: none;">
+    <div class="saved-groups-header">
+      <span class="material-icons">grid_view</span>
+      <span>Tab groups</span>
+      <span class="material-icons saved-groups-close" id="saved-groups-close">close</span>
+    </div>
+    <div id="saved-groups-list" class="saved-groups-list">
+      <!-- Populated dynamically by JS -->
     </div>
   </div>
 

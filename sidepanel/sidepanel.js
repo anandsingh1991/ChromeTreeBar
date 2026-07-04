@@ -398,7 +398,7 @@ async function initTree() {
         // Bookmarks icon + title
         $title.html(`
           <span class="material-icons bookmark-icon" style="font-size: 18px; margin-right: 8px;">bookmarks</span>
-          <span class="bookmark-title-text">${node.title}</span>
+          <span class="bookmark-title-text">${escapeHtml(node.title)}</span>
         `);
         return;
       }
@@ -414,7 +414,7 @@ async function initTree() {
           $title.append(`<span class="material-icons bookmark-icon" style="font-size: 16px;">star</span>`);
         }
         
-        $title.append(`<span class="bookmark-title-text">${node.title}</span>`);
+        $title.append(`<span class="bookmark-title-text">${escapeHtml(node.title)}</span>`);
         return;
       }
 
@@ -440,7 +440,7 @@ async function initTree() {
 
         // Render Title (White text, card header style)
         // We use a specific container to control layout
-        $title.html(`<span class="group-title-text">${node.title}</span>`);
+        $title.html(`<span class="group-title-text">${escapeHtml(node.title)}</span>`);
 
         // Close button for group (closes all tabs in group)
         const $groupClose = $('<div class="tab-close"><span class="material-icons" style="font-size: 16px;">close</span></div>');
@@ -461,7 +461,7 @@ async function initTree() {
       $title.append(createFaviconElement(node));
 
       // Re-add the title text
-      $title.append(`<span class="tab-title-text">${node.title}</span>`);
+      $title.append(`<span class="tab-title-text">${escapeHtml(node.title)}</span>`);
 
       // Audio indicator (rightmost position before close button)
       if (node.data.audible) {
@@ -589,6 +589,11 @@ function handleBackgroundMessage(message) {
     reloadTree();
   } else if (message.type === 'GROUP_CREATED' || message.type === 'GROUP_UPDATED' || message.type === 'GROUP_REMOVED') {
     reloadTree();
+  } else if (message.type === 'SAVED_GROUPS_UPDATED') {
+    // Re-render the saved-groups dialog if it's currently open
+    if (savedGroupsDialog.classList.contains('show')) {
+      renderSavedGroups();
+    }
   }
 }
 
@@ -759,6 +764,7 @@ const groupNameInput = document.getElementById('group-name-input');
 
 let contextMenuTarget = null; // { type: 'tab'|'group'|'multi'|'empty', node: FancytreeNode|null, nodes: FancytreeNode[] }
 let pendingGroupTabIds = []; // Tab IDs to group when color is selected
+let pendingGroupEdges = [];  // Captured nesting to reassert after grouping
 let lastContextMenuPosition = { x: 100, y: 100 }; // Store position for dialogs
 let editingGroupContext = null; // Store context when editing a group
 
@@ -782,6 +788,7 @@ function closeGroupDialog() {
   }, 150); // Match group dialog transition duration
   groupNameInput.value = '';
   pendingGroupTabIds = [];
+  pendingGroupEdges = [];
   document.querySelectorAll('.color-option').forEach(el => el.classList.remove('selected'));
 }
 
@@ -927,18 +934,6 @@ async function handleMenuAction(action) {
       }
       break;
     }
-    case 'newWindow': {
-      const tabIds = context.type === 'multi' 
-        ? context.nodes.filter(n => !n.data.isGroup).map(n => parseInt(n.key))
-        : [parseInt(context.node.key)];
-      if (tabIds.length > 0) {
-        const newWindow = await chrome.windows.create({ tabId: tabIds[0] });
-        if (tabIds.length > 1) {
-          await chrome.tabs.move(tabIds.slice(1), { windowId: newWindow.id, index: -1 });
-        }
-      }
-      break;
-    }
     case 'duplicate': {
       const originalTabId = parseInt(context.node.key);
       const newTab = await chrome.tabs.duplicate(originalTabId);
@@ -950,12 +945,6 @@ async function handleMenuAction(action) {
       });
       break;
     }
-    case 'togglePin': {
-      const tabId = parseInt(context.node.key);
-      const tab = await chrome.tabs.get(tabId);
-      await chrome.tabs.update(tabId, { pinned: !tab.pinned });
-      break;
-    }
     case 'toggleMute': {
       const tabId = parseInt(context.node.key);
       const currentMuted = context.node.data.muted;
@@ -963,10 +952,10 @@ async function handleMenuAction(action) {
       break;
     }
     case 'createGroup': {
-      const tabIds = context.type === 'multi'
-        ? context.nodes.filter(n => !n.data.isGroup).map(n => parseInt(n.key))
-        : [parseInt(context.node.key)];
-      pendingGroupTabIds = tabIds;
+      const nodes = context.type === 'multi' ? context.nodes : [context.node];
+      const groupableNodes = nodes.filter(n => !n.data.isGroup);
+      pendingGroupTabIds = [...new Set(groupableNodes.flatMap(collectAllTabIdsFromNode))];
+      pendingGroupEdges = captureTreeEdges(groupableNodes);
       showGroupDialog(event.clientX || 100, event.clientY || 100);
       break;
     }
@@ -1011,6 +1000,7 @@ async function handleMenuAction(action) {
     }
     case 'editGroup': {
       pendingGroupTabIds = [];
+      pendingGroupEdges = [];
       const groupId = context.node.data.groupId;
       const group = await chrome.tabGroups.get(groupId);
       groupNameInput.value = group.title || '';
@@ -1097,8 +1087,10 @@ async function createOrUpdateGroup(color) {
   
   if (pendingGroupTabIds.length > 0) {
     // Creating new group
+    const edges = pendingGroupEdges;
     const groupId = await chrome.tabs.group({ tabIds: pendingGroupTabIds });
     await chrome.tabGroups.update(groupId, { title: name, color });
+    await chrome.runtime.sendMessage({ type: 'RESTORE_TREE_STRUCTURE', edges, groupId });
   } else if (editingGroupContext && editingGroupContext.type === 'group') {
     // Editing existing group
     const groupId = editingGroupContext.node.data.groupId;
@@ -1230,6 +1222,131 @@ document.getElementById('btn-new-tab').addEventListener('click', async () => {
 // Auto Organize Button
 document.getElementById('btn-auto-organize').addEventListener('click', async () => {
   await autoOrganize();
+});
+
+// =====================================================
+// SAVED GROUPS DIALOG
+// =====================================================
+
+const savedGroupsDialog = document.getElementById('saved-groups-dialog');
+const savedGroupsList = document.getElementById('saved-groups-list');
+const savedGroupsBtn = document.getElementById('btn-saved-groups');
+
+const GROUP_COLOR_MAP = {
+  grey: '#5f6368', blue: '#1a73e8', red: '#d93025', yellow: '#e37400',
+  green: '#188038', pink: '#d01884', purple: '#9334e6', cyan: '#007b83', orange: '#e25142'
+};
+
+// Human-friendly relative time (e.g. "2 days ago")
+function relativeTime(ts) {
+  const diff = Date.now() - ts;
+  const s = Math.floor(diff / 1000);
+  if (s < 60) return 'just now';
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m} min ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h} hr ago`;
+  const d = Math.floor(h / 24);
+  if (d < 30) return `${d} day${d > 1 ? 's' : ''} ago`;
+  const mo = Math.floor(d / 30);
+  return `${mo} month${mo > 1 ? 's' : ''} ago`;
+}
+
+function escapeHtml(str) {
+  return String(str || '').replace(/[&<>"']/g, c => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
+}
+
+async function renderSavedGroups() {
+  const { savedGroups = [] } = await chrome.runtime.sendMessage({ type: 'GET_SAVED_GROUPS' });
+  savedGroupsList.innerHTML = '';
+
+  if (savedGroups.length === 0) {
+    savedGroupsList.innerHTML = `
+      <div class="saved-groups-empty">
+        <span class="material-icons">inbox</span>
+        <span>No saved tab groups yet.<br>Groups you close are saved here automatically.</span>
+      </div>`;
+    return;
+  }
+
+  savedGroups.forEach(group => {
+    const color = GROUP_COLOR_MAP[group.color] || '#5f6368';
+    const name = group.name && group.name.trim() ? group.name : 'Untitled group';
+    const tabCount = group.tabs ? group.tabs.length : 0;
+
+    const row = document.createElement('div');
+    row.className = 'saved-group-item';
+    row.dataset.id = group.id;
+    row.innerHTML = `
+      <span class="saved-group-dot" style="background-color: ${color};"></span>
+      <div class="saved-group-info">
+        <span class="saved-group-name">${escapeHtml(name)}</span>
+        <span class="saved-group-meta">${tabCount} tab${tabCount !== 1 ? 's' : ''} · ${relativeTime(group.lastUsed)}</span>
+      </div>
+      <span class="material-icons saved-group-delete" title="Delete saved group">delete</span>
+    `;
+    savedGroupsList.appendChild(row);
+  });
+}
+
+function openSavedGroupsDialog() {
+  closeContextMenu();
+  closeGroupDialog();
+  renderSavedGroups();
+  savedGroupsDialog.style.display = 'block';
+  setTimeout(() => savedGroupsDialog.classList.add('show'), 0);
+}
+
+function closeSavedGroupsDialog() {
+  savedGroupsDialog.classList.remove('show');
+  setTimeout(() => {
+    if (!savedGroupsDialog.classList.contains('show')) {
+      savedGroupsDialog.style.display = 'none';
+    }
+  }, 150);
+}
+
+savedGroupsBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  if (savedGroupsDialog.classList.contains('show')) {
+    closeSavedGroupsDialog();
+  } else {
+    openSavedGroupsDialog();
+  }
+});
+
+document.getElementById('saved-groups-close').addEventListener('click', closeSavedGroupsDialog);
+
+// Restore (row click) and delete (trash icon) via delegation
+savedGroupsList.addEventListener('click', async (e) => {
+  const item = e.target.closest('.saved-group-item');
+  if (!item) return;
+  const savedGroupId = item.dataset.id;
+
+  if (e.target.closest('.saved-group-delete')) {
+    e.stopPropagation();
+    await chrome.runtime.sendMessage({ type: 'DELETE_SAVED_GROUP', savedGroupId });
+    renderSavedGroups();
+  } else {
+    await chrome.runtime.sendMessage({ type: 'RESTORE_SAVED_GROUP', savedGroupId });
+    closeSavedGroupsDialog();
+  }
+});
+
+// Close on outside click / Escape
+document.addEventListener('click', (e) => {
+  if (savedGroupsDialog.classList.contains('show') &&
+      !savedGroupsDialog.contains(e.target) &&
+      !savedGroupsBtn.contains(e.target)) {
+    closeSavedGroupsDialog();
+  }
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && savedGroupsDialog.classList.contains('show')) {
+    closeSavedGroupsDialog();
+  }
 });
 
 // =====================================================
@@ -1426,6 +1543,31 @@ function collectAllTabIdsFromNode(node) {
 }
 
 /**
+ * Capture parent-child edges among a set of Fancytree nodes (and their descendants),
+ * keyed by real Chrome tab IDs. Only edges whose parent is ALSO in the grouped set are
+ * kept, so nesting survives chrome.tabs.group() (which otherwise flattens via onTabUpdated).
+ * Returns [{ tabId, parentId }] for re-applying after grouping.
+ */
+function captureTreeEdges(rootNodes) {
+  const inSet = new Set();
+  const walk = (n) => {
+    if (!n.data.isGroup) inSet.add(parseInt(n.key));
+    if (n.children) n.children.forEach(walk);
+  };
+  rootNodes.forEach(walk);
+
+  const edges = [];
+  const emit = (n, parentTabId) => {
+    if (n.data.isGroup) return;
+    const tabId = parseInt(n.key);
+    edges.push({ tabId, parentId: parentTabId != null && inSet.has(parentTabId) ? parentTabId : null });
+    if (n.children) n.children.forEach(c => emit(c, tabId));
+  };
+  rootNodes.forEach(n => emit(n, null));
+  return edges;
+}
+
+/**
  * Auto-organize ungrouped root tabs by domain
  * - Adds tabs to existing groups if a group with matching domain name exists
  * - Creates new groups only for domains without existing groups
@@ -1505,19 +1647,23 @@ async function autoOrganize() {
     
     // Remove duplicates
     const uniqueTabIds = [...new Set(allTabIds)];
-    
+
     if (uniqueTabIds.length === 0) continue;
-    
+
+    // Capture nesting BEFORE grouping so we can restore it afterward (group() flattens it)
+    const treeEdges = captureTreeEdges(nodes);
+
     // Check if a group with this domain name already exists
     const domainKey = domain.toLowerCase().trim();
     const existingGroupId = existingGroups[domainKey];
     console.log(`Auto-organize: Looking for group with key="${domainKey}", found groupId=${existingGroupId}`);
-    
+
     if (existingGroupId) {
       // Add to existing group
       try {
         await chrome.tabs.group({ groupId: existingGroupId, tabIds: uniqueTabIds });
         tabsAddedToExisting += uniqueTabIds.length;
+        await chrome.runtime.sendMessage({ type: 'RESTORE_TREE_STRUCTURE', edges: treeEdges, groupId: existingGroupId });
         console.log(`Auto-organize: Added ${uniqueTabIds.length} tabs to existing group "${domain}"`);
       } catch (e) {
         console.error(`Auto-organize: Failed to add tabs to existing group "${domain}"`, e);
@@ -1530,6 +1676,7 @@ async function autoOrganize() {
           title: domain,
           color: colors[colorIndex % colors.length]
         });
+        await chrome.runtime.sendMessage({ type: 'RESTORE_TREE_STRUCTURE', edges: treeEdges, groupId });
         colorIndex++;
         groupsCreated++;
         console.log(`Auto-organize: Created new group "${domain}" with ${uniqueTabIds.length} tabs`);
