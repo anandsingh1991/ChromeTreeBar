@@ -132,13 +132,13 @@ async function initializeTree() {
     // so their tabs+tree edges are persisted before any future removal.
     groups.forEach(g => refreshGroupSnapshot(g.id));
   } finally {
-    // Replay all buffered events that happened during the await
-    if (eventQueue.length > 0) {
-      log('Replaying buffered events:', eventQueue.length);
-      for (const event of eventQueue) {
-        await handleBufferedEvent(event);
-      }
-      eventQueue.length = 0;
+    // Drain via shift (not a fixed-length loop + length=0) so events that arrive
+    // *during* replay are processed too, not discarded. The loop exits only when the
+    // queue is empty, and there's no await before isInitializing is cleared, so no
+    // listener can enqueue an event that then gets dropped.
+    if (eventQueue.length > 0) log('Replaying buffered events:', eventQueue.length);
+    while (eventQueue.length > 0) {
+      await handleBufferedEvent(eventQueue.shift());
     }
     DEBUG && console.timeEnd('Init:Total');
     isInitializing = false;
@@ -239,6 +239,8 @@ async function handleBufferedEvent(event) {
     case 'attached': onTabAttached(event.data.tabId, event.data.attachInfo); break;
     case 'detached': onTabDetached(event.data.tabId, event.data.detachInfo); break;
     case 'replaced': onTabReplaced(event.data.addedTabId, event.data.removedTabId); break;
+    case 'groupCreated': onGroupUpsert(event.data, 'GROUP_CREATED'); break;
+    case 'groupUpdated': onGroupUpsert(event.data, 'GROUP_UPDATED'); break;
   }
 }
 
@@ -262,17 +264,21 @@ async function cleanupStaleTabsFromTree() {
           parent.children = parent.children.filter(id => id !== tabId);
         }
         
-        // Re-parent any children of this stale tab to root
+        // Re-parent children to the grandparent (matching onTabRemoved), not root,
+        // so a stale middle tab doesn't collapse a whole nesting level.
         if (node.children && node.children.length > 0) {
           node.children.forEach(childId => {
             const child = tabTree.get(childId);
             if (child) {
-              child.parentId = null;
-              log('Re-parenting child to root:', childId);
+              child.parentId = node.parentId;
+              if (node.parentId) {
+                const grandparent = tabTree.get(node.parentId);
+                if (grandparent) grandparent.children.push(childId);
+              }
             }
           });
         }
-        
+
         tabTree.delete(tabId);
         removedCount++;
       }
@@ -416,6 +422,19 @@ function applyTreeEdges(assignments) {
   saveTree();
 }
 
+// True if making `parentId` the parent of `tabId` would form a cycle. Loop bound by
+// tree size so a pre-existing cycle can't hang it.
+function wouldCreateCycle(tabId, parentId) {
+  let cursor = parentId;
+  let hops = 0;
+  while (cursor != null && hops++ <= tabTree.size) {
+    if (cursor === tabId) return true;
+    const node = tabTree.get(cursor);
+    cursor = node ? node.parentId : null;
+  }
+  return false;
+}
+
 function linkTreeEdge(tabId, parentId) {
   const node = tabTree.get(tabId);
   if (!node) return;
@@ -474,21 +493,28 @@ chrome.tabs.onMoved.addListener(() => {
 });
 
 // --- Group Listeners ---
+// onCreated/onUpdated are init-buffered: a group event arriving during init's awaits
+// would otherwise be clobbered by groupMap.clear(), dropping the group until a later
+// event. onRemoved is deliberately NOT buffered (see note below).
 chrome.tabGroups.onCreated.addListener(group => {
-  groupMap.set(group.id, group);
-  refreshGroupSnapshot(group.id);
-  notifySidepanel('GROUP_CREATED', { group });
+  if (isInitializing) { eventQueue.push({ type: 'groupCreated', data: group }); return; }
+  onGroupUpsert(group, 'GROUP_CREATED');
 });
 
 chrome.tabGroups.onUpdated.addListener(group => {
-  groupMap.set(group.id, group);
-  refreshGroupSnapshot(group.id);
-  notifySidepanel('GROUP_UPDATED', { group });
+  if (isInitializing) { eventQueue.push({ type: 'groupUpdated', data: group }); return; }
+  onGroupUpsert(group, 'GROUP_UPDATED');
 });
 
-// NOTE: group listeners are intentionally NOT init-buffered like tab listeners.
-// The persisted liveGroupSnapshots mirror means a removal during init still has
-// its data available from storage, so saveGroupSnapshot works regardless of timing.
+function onGroupUpsert(group, notifyType) {
+  groupMap.set(group.id, group);
+  refreshGroupSnapshot(group.id);
+  notifySidepanel(notifyType, { group });
+}
+
+// onRemoved is intentionally NOT init-buffered: the persisted liveGroupSnapshots
+// mirror means a removal during init still has its data in storage, so
+// saveGroupSnapshot works regardless of timing.
 // Chrome may pass either a groupId (older) or a group object (newer); normalize.
 chrome.tabGroups.onRemoved.addListener(groupOrId => {
   const groupId = typeof groupOrId === 'object' ? groupOrId.id : groupOrId;
@@ -647,8 +673,12 @@ function onTabUpdated(tabId, changeInfo, tab) {
 }
 
 function onTabActivated(activeInfo) {
+  // Scope to the activated window: each window keeps its own active tab, so switching
+  // tabs in one window must not clear another window's active flag.
   tabTree.forEach(node => {
-    node.active = node.tabId === activeInfo.tabId;
+    if (node.windowId === activeInfo.windowId) {
+      node.active = node.tabId === activeInfo.tabId;
+    }
   });
   notifySidepanel('TAB_ACTIVATED', { tabId: activeInfo.tabId });
 }
@@ -656,6 +686,14 @@ function onTabActivated(activeInfo) {
 function onTabAttached(tabId, attachInfo) {
   const node = tabTree.get(tabId);
   if (node) {
+    // Children stay in the old window; if left nested under this tab they'd be filtered
+    // out of that window's panel (parent now lives elsewhere), so promote them to root.
+    node.children.forEach(childId => {
+      const child = tabTree.get(childId);
+      if (child) { child.parentId = null; child.level = 0; }
+    });
+    node.children = [];
+
     node.windowId = attachInfo.newWindowId;
     node.parentId = null;
     node.level = 0;
@@ -673,7 +711,20 @@ function onTabReplaced(addedTabId, removedTabId) {
   if (node) {
     tabTree.set(addedTabId, { ...node, tabId: addedTabId });
     tabTree.delete(removedTabId);
+
+    // Re-point both link directions to the new id, else children fall to root
+    // (their parentId no longer resolves) and the parent lists a dead child.
+    if (node.parentId != null && tabTree.has(node.parentId)) {
+      const parent = tabTree.get(node.parentId);
+      parent.children = parent.children.map(id => (id === removedTabId ? addedTabId : id));
+    }
+    node.children.forEach(childId => {
+      const child = tabTree.get(childId);
+      if (child) child.parentId = addedTabId;
+    });
+
     saveTree();
+    if (node.groupId > -1) refreshGroupSnapshot(node.groupId);
     notifySidepanel('TAB_UPDATED', { tabId: addedTabId });
   }
 }
@@ -721,8 +772,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const { tabId, parentId } = message;
       const node = tabTree.get(tabId);
       const parentNode = tabTree.get(parentId);
-      
-      if (node && parentNode) {
+
+      // A cycle makes both nodes' subtree unreachable in buildTreeStructure (tabs
+      // vanish from the panel while still open).
+      if (node && parentNode && !wouldCreateCycle(tabId, parentId)) {
         // Remove from old parent's children if it had one
         if (node.parentId && tabTree.has(node.parentId)) {
           const oldParent = tabTree.get(node.parentId);
@@ -846,7 +899,12 @@ function buildTreeStructure() {
     const treeNode = nodeMap.get(id);
 
     // Logic: Nesting (custom) > Grouping (native) > Root
-    if (node.parentId && nodeMap.has(node.parentId)) {
+    // Nest only when child and parent share group membership; otherwise a child in a
+    // different group (or ungrouped) would render inside its parent's group folder,
+    // misrepresenting Chrome's membership.
+    const parentNode = node.parentId != null ? tabTree.get(node.parentId) : null;
+    const sharesParentGroup = parentNode && parentNode.groupId === node.groupId;
+    if (node.parentId && nodeMap.has(node.parentId) && sharesParentGroup) {
       // Child of another tab -> Stay nested (Hybrid Model)
       nodeMap.get(node.parentId).children.push(treeNode);
     } else if (node.groupId !== undefined && node.groupId !== null && node.groupId > -1 && groupNodeMap.has(node.groupId)) {

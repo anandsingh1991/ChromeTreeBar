@@ -64,8 +64,8 @@ function createFaviconElement(node) {
     return $(`<span class="tab-favicon tab-letter-icon" style="background-color: ${fallback.color};">${fallback.letter}</span>`);
   }
   
-  // Try to load favicon with error handler
-  const $favicon = $(`<img class="tab-favicon" src="${faviconUrl}" alt="">`);
+  // .attr (not string interpolation) so a quote in the URL can't break out of the attribute.
+  const $favicon = $('<img class="tab-favicon" alt="">').attr('src', faviconUrl);
   $favicon.on('error', function() {
     // Add to cache so we don't retry this URL
     faviconFailureCache.add(cacheKey);
@@ -77,6 +77,17 @@ function createFaviconElement(node) {
   });
   
   return $favicon;
+}
+
+// Case-insensitive substring matcher over a node's title AND its URL, for filterBranches.
+// Bookmark folders / group headers have no url and just match on title.
+function makeSearchMatcher(query) {
+  const needle = query.toLowerCase();
+  return (node) => {
+    const title = (node.title || '').toLowerCase();
+    const url = (node.data && node.data.url ? node.data.url : '').toLowerCase();
+    return title.indexOf(needle) >= 0 || url.indexOf(needle) >= 0;
+  };
 }
 
 function addBookmarksToTree() {
@@ -138,9 +149,7 @@ $(document).ready(async () => {
       $('#clear-search').show();
       addBookmarksToTree();
       
-      // Filter: match title, mode="hide"
-      // Returns count of matches
-      const matchCount = treeInstance.filterBranches(query);
+      const matchCount = treeInstance.filterBranches(makeSearchMatcher(query));
       console.log(`Search query: "${query}", Matches: ${matchCount}`);
     } else {
       $('#clear-search').hide();
@@ -186,6 +195,10 @@ async function initTree() {
   tree = $('#tree').fancytree({
     extensions: ['dnd5', 'filter'],
     quicksearch: true, // Enable Type-ahead
+    // Must stay true: Fancytree's initial render writes node.title (a page's
+    // document.title) as raw HTML before enhanceTitle rebuilds it, so without this
+    // attacker markup in a title executes on render.
+    escapeTitles: true,
     filter: {
       autoApply: true,   // Re-apply last filter if lazy data is loaded
       autoExpand: true, // Expand all branches that contain matches while filtered
@@ -539,10 +552,11 @@ function toggleSelection(node) {
 
 function selectRange(startNode, endNode) {
   clearSelection();
-  const allNodes = tree.fancytree('getRootNode').visit((n) => n);
+  // Only visible nodes: visit() also walks filtered/collapsed nodes, so a shift-range
+  // during an active search would otherwise select tabs the user can't see.
   const flatNodes = [];
   tree.fancytree('getRootNode').visit((n) => {
-    flatNodes.push(n);
+    if (n.isVisible()) flatNodes.push(n);
   });
 
   const startIdx = flatNodes.indexOf(startNode);
@@ -638,12 +652,17 @@ async function reloadTree() {
       ];
     }
     
+    // removeChildren() below destroys these node objects; stale refs leave a ghost
+    // selection that blocks dragStart for every fresh node.
+    selectedNodes.clear();
+    lastClickedNode = null;
+
     rootNode.removeChildren();
     rootNode.addChildren(combinedTree);
-    
+
     // Re-apply filter if searching
     if (isSearching) {
-      tree.fancytree('getTree').filterBranches($('#search-input').val().trim());
+      tree.fancytree('getTree').filterBranches(makeSearchMatcher($('#search-input').val().trim()));
     }
   }, 150);
 }
@@ -737,6 +756,9 @@ function updateNode(tabId, tab, changeInfo = {}) {
 
 function updateActiveTab(tabId) {
   if (!tree || !tree.fancytree('getTree')) return; // Guard against race condition
+  // Ignore activations for tabs not in this window's tree, else another window's
+  // activation would clear this panel's highlight and re-add none.
+  if (!tree.fancytree('getNodeByKey', String(tabId))) return;
   tree.fancytree('getRootNode').visit((node) => {
     const isActive = parseInt(node.key) === tabId;
     node.data.active = isActive;
@@ -956,7 +978,7 @@ async function handleMenuAction(action) {
       const groupableNodes = nodes.filter(n => !n.data.isGroup);
       pendingGroupTabIds = [...new Set(groupableNodes.flatMap(collectAllTabIdsFromNode))];
       pendingGroupEdges = captureTreeEdges(groupableNodes);
-      showGroupDialog(event.clientX || 100, event.clientY || 100);
+      showGroupDialog(lastContextMenuPosition.x, lastContextMenuPosition.y);
       break;
     }
     case 'close': {
@@ -1168,6 +1190,9 @@ document.querySelectorAll('.color-option').forEach(el => {
 groupNameInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {
     e.preventDefault();
+    // Stop bubbling to the document-level Enter handler, which would fire
+    // createOrUpdateGroup a second time (dialog still open during the awaited group()).
+    e.stopPropagation();
     const selectedColor = document.querySelector('.color-option.selected');
     const color = selectedColor ? selectedColor.dataset.color : 'grey';
     createOrUpdateGroup(color);
