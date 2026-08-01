@@ -1466,7 +1466,9 @@ async function renderSavedGroups() {
 function openSavedGroupsDialog() {
   closeAllOverlays('savedGroups');
   renderSavedGroups();
-  savedGroupsDialog.style.display = 'block';
+  // Must be flex, not block: the dialog is a flex column so .saved-groups-list is
+  // height-bounded and scrolls. With block it grows past max-height and clips rows.
+  savedGroupsDialog.style.display = 'flex';
   setTimeout(() => savedGroupsDialog.classList.add('show'), 0);
 }
 

@@ -1422,6 +1422,9 @@ ul.fancytree-container li.group-parent-li.fancytree-hide * {
 .saved-groups-list {
   overflow-y: auto;
   padding: 6px;
+  /* Without min-height a flex item won't shrink below its content, so the list would
+     overflow max-height instead of scrolling. */
+  min-height: 0;
 }
 
 .saved-group-item {
