@@ -1,4 +1,6 @@
-let tree;
+import { untitledGroupLabel } from '../lib/tree-logic.mjs';
+
+let tree; // Fancytree instance, not the jQuery element — call its methods directly
 let lastClickedNode = null;
 let selectedNodes = new Set();
 const EXTENSION_ID = chrome.runtime.id; // Helper for current ID
@@ -166,10 +168,10 @@ function makeSearchMatcher(query) {
 }
 
 function addBookmarksToTree() {
-  if (!tree || !tree.fancytree('getTree')) return;
+  if (!tree) return;
   if (!window.bookmarksData) return;
   
-  const rootNode = tree.fancytree('getTree').getRootNode();
+  const rootNode = tree.getRootNode();
   const hasBookmarks = rootNode.children.some(child => child.key === 'bookmarks-root');
   
   if (!hasBookmarks) {
@@ -186,9 +188,9 @@ function addBookmarksToTree() {
 }
 
 function removeBookmarksFromTree() {
-  if (!tree || !tree.fancytree('getTree')) return;
+  if (!tree) return;
   
-  const rootNode = tree.fancytree('getTree').getRootNode();
+  const rootNode = tree.getRootNode();
   const bookmarksNode = rootNode.findFirst((node) => node.key === 'bookmarks-root');
   
   if (bookmarksNode) {
@@ -213,7 +215,7 @@ $(document).ready(async () => {
   $('#search-input').on('input', function (e) {
     console.log('Search Input detected:', $(this).val());
     // If tree not ready, ignore
-    if (!tree || !tree.fancytree('getTree')) {
+    if (!tree) {
       console.warn('Tree not initialized during search');
       return;
     }
@@ -224,7 +226,7 @@ $(document).ready(async () => {
     }
 
     // Safety check just in case
-    const treeInstance = tree.fancytree('getTree');
+    const treeInstance = tree;
     if (!treeInstance) return;
 
     const query = $(this).val().trim();
@@ -252,7 +254,7 @@ $(document).ready(async () => {
   function clearSearch() {
     $('#search-input').val('');
     $('#clear-search').hide();
-    const treeInstance = tree.fancytree('getTree');
+    const treeInstance = tree;
     treeInstance.clearFilter();
     removeBookmarksFromTree();
     renderPinnedStrip();
@@ -280,7 +282,7 @@ async function initTree() {
   // Initially show only tabs (no bookmarks)
   const combinedTree = filteredTree;
   
-  tree = $('#tree').fancytree({
+  $('#tree').fancytree({
     extensions: ['dnd5', 'filter'],
     quicksearch: true, // Enable Type-ahead
     // Must stay true: Fancytree's initial render writes node.title (a page's
@@ -314,11 +316,16 @@ async function initTree() {
         return true;
       },
       dragEnter: (node, data) => {
+        // Reject drags from outside the tree so no drop affordance is shown for them.
+        if (!data.otherNode) {
+          return false;
+        }
+
         // Prevent dropping on bookmarks
         if (node.data.isBookmark || node.data.isBookmarkFolder) {
           return false;
         }
-        
+
         // CLEANUP: Remove from ANY other node to prevent multiple highlights
         $('.fancytree-node.forced-drop-over').removeClass('forced-drop-over');
 
@@ -365,6 +372,11 @@ async function initTree() {
         // Cleanup all visuals
         $('.fancytree-node.forced-drop-over').removeClass('forced-drop-over');
         $('#tree').removeClass('root-drop-zone-active');
+
+        // otherNode is null for drags originating outside the tree (a link, file, or
+        // selected text). dragStart never ran for those, so there is nothing to move —
+        // and acting on selectedNodes would move tabs the user never dragged.
+        if (!data.otherNode) return;
 
         const nodesToMove = selectedNodes.size > 0 ? Array.from(selectedNodes) : [data.otherNode];
 
@@ -415,7 +427,7 @@ async function initTree() {
 
         nodesToMove.forEach(moveNode => {
           if (isRootDrop) {
-            moveNode.moveTo(tree.fancytree('getRootNode'), 'child');
+            moveNode.moveTo(tree.getRootNode(), 'child');
           } else if (data.hitMode === 'over') {
             moveNode.moveTo(node, 'child');
           } else if (data.hitMode === 'before') {
@@ -602,7 +614,7 @@ async function initTree() {
       if (event.ctrlKey || event.metaKey) {
         // If starting a new multi-selection, include the currently active node too
         if (selectedNodes.size === 0) {
-          const activeNode = tree.fancytree('getTree').getActiveNode();
+          const activeNode = tree.getActiveNode();
           if (activeNode && activeNode !== node && !activeNode.data.isGroup) {
             toggleSelection(activeNode);
           }
@@ -625,7 +637,9 @@ async function initTree() {
       }
     }
   });
-  
+
+  tree = $.ui.fancytree.getTree('#tree');
+
   console.timeEnd('🕐 TOTAL: initTree');
 }
 
@@ -644,7 +658,7 @@ function selectRange(startNode, endNode) {
   // Only visible nodes: visit() also walks filtered/collapsed nodes, so a shift-range
   // during an active search would otherwise select tabs the user can't see.
   const flatNodes = [];
-  tree.fancytree('getRootNode').visit((n) => {
+  tree.getRootNode().visit((n) => {
     if (n.isVisible()) flatNodes.push(n);
   });
 
@@ -667,7 +681,7 @@ function clearSelection() {
 }
 
 async function saveTreeStructure() {
-  const rootNode = tree.fancytree('getRootNode');
+  const rootNode = tree.getRootNode();
   const treeData = rootNode.toDict(true).children;
   await chrome.runtime.sendMessage({ type: 'UPDATE_TREE', tree: treeData });
 }
@@ -726,9 +740,9 @@ async function reloadTree() {
     // Filter the tree to valid nodes for THIS window only
     const filteredTree = filterNodesByWindow(tabsResponse.tree, currentWindowId);
 
-    if (!tree || !tree.fancytree('getTree')) return; // Guard against race condition
+    if (!tree) return; // Guard against race condition
     
-    const rootNode = tree.fancytree('getRootNode');
+    const rootNode = tree.getRootNode();
     const isSearching = $('#search-input').val().trim().length > 0;
     
     // Build tree with or without bookmarks based on search state
@@ -758,7 +772,7 @@ async function reloadTree() {
 
     // Re-apply filter if searching
     if (isSearching) {
-      tree.fancytree('getTree').filterBranches(makeSearchMatcher($('#search-input').val().trim()));
+      tree.filterBranches(makeSearchMatcher($('#search-input').val().trim()));
     }
   }, 150);
 }
@@ -784,8 +798,8 @@ function filterNodesByWindow(nodes, windowId) {
 }
 
 function updateNode(tabId, tab, changeInfo = {}) {
-  if (!tree || !tree.fancytree('getTree')) return; // Guard against race condition
-  const node = tree.fancytree('getNodeByKey', String(tabId));
+  if (!tree) return; // Guard against race condition
+  const node = tree.getNodeByKey(String(tabId));
   if (node) {
     // Update node data and manually update DOM elements for performance
     if (tab.title) {
@@ -851,12 +865,12 @@ function updateNode(tabId, tab, changeInfo = {}) {
 }
 
 function updateActiveTab(tabId) {
-  if (!tree || !tree.fancytree('getTree')) return; // Guard against race condition
+  if (!tree) return; // Guard against race condition
   // Ignore activations for tabs not in this window's tree, else another window's
   // activation would clear this panel's highlight and re-add none. Pinned tabs are
   // absent from the tree by design, so they must not be filtered out here.
-  if (!tree.fancytree('getNodeByKey', String(tabId)) && !pinnedTabIds.has(tabId)) return;
-  tree.fancytree('getRootNode').visit((node) => {
+  if (!tree.getNodeByKey(String(tabId)) && !pinnedTabIds.has(tabId)) return;
+  tree.getRootNode().visit((node) => {
     const isActive = parseInt(node.key) === tabId;
     node.data.active = isActive;
     if (isActive) {
@@ -882,10 +896,11 @@ const groupDialog = document.getElementById('group-dialog');
 const groupNameInput = document.getElementById('group-name-input');
 
 let contextMenuTarget = null; // { type: 'tab'|'group'|'multi'|'empty', node: FancytreeNode|null, nodes: FancytreeNode[] }
-let pendingGroupTabIds = []; // Tab IDs to group when color is selected
-let pendingGroupEdges = [];  // Captured nesting to reassert after grouping
 let lastContextMenuPosition = { x: 100, y: 100 }; // Store position for dialogs
 let editingGroupContext = null; // Store context when editing a group
+// Group being live-edited by the dialog. Set for both create and edit, so every
+// keystroke and color click applies immediately.
+let liveGroupId = null;
 
 // Close context menu and group dialog
 function closeContextMenu() {
@@ -906,8 +921,9 @@ function closeGroupDialog() {
     }
   }, 150); // Match group dialog transition duration
   groupNameInput.value = '';
-  pendingGroupTabIds = [];
-  pendingGroupEdges = [];
+  // Must clear: a stray color click after dismissal would otherwise recolor this group.
+  liveGroupId = null;
+  editingGroupContext = null;
   document.querySelectorAll('.color-option').forEach(el => el.classList.remove('selected'));
 }
 
@@ -1105,9 +1121,20 @@ async function handleMenuAction(action) {
     case 'createGroup': {
       const nodes = context.type === 'multi' ? context.nodes : [context.node];
       const groupableNodes = nodes.filter(n => !n.data.isGroup);
-      pendingGroupTabIds = [...new Set(groupableNodes.flatMap(collectAllTabIdsFromNode))];
-      pendingGroupEdges = captureTreeEdges(groupableNodes);
-      showGroupDialog(lastContextMenuPosition.x, lastContextMenuPosition.y);
+      const tabIds = [...new Set(groupableNodes.flatMap(collectAllTabIdsFromNode))];
+      const edges = captureTreeEdges(groupableNodes);
+      const { x, y } = lastContextMenuPosition;
+      clearSelection();
+
+      // Create the group before opening the dialog so the tree shows it immediately and
+      // reflects each keystroke / color click, like Chrome's own group bubble.
+      const groupId = await chrome.tabs.group({ tabIds });
+      const color = pickGroupColor();
+      await chrome.tabGroups.update(groupId, { color });
+      await chrome.runtime.sendMessage({ type: 'RESTORE_TREE_STRUCTURE', edges, groupId });
+
+      showGroupDialog(x, y, false, color);
+      liveGroupId = groupId; // After showGroupDialog: it closes the dialog first, resetting this.
       break;
     }
     case 'close': {
@@ -1160,13 +1187,13 @@ async function handleMenuAction(action) {
       break;
     }
     case 'editGroup': {
-      pendingGroupTabIds = [];
-      pendingGroupEdges = [];
       const groupId = context.node.data.groupId;
       const group = await chrome.tabGroups.get(groupId);
-      groupNameInput.value = group.title || '';
-      editingGroupContext = context; // Store for later use in createOrUpdateGroup
       showGroupDialog(lastContextMenuPosition.x, lastContextMenuPosition.y, true, group.color);
+      // After showGroupDialog: it closes the dialog first, which resets these.
+      groupNameInput.value = group.title || '';
+      editingGroupContext = context;
+      liveGroupId = groupId;
       break;
     }
     case 'ungroup': {
@@ -1196,44 +1223,35 @@ async function handleMenuAction(action) {
   }
 }
 
+// Prefer a color no existing group is using, rotating by group count so repeated
+// creations spread across the palette instead of repeating.
+function pickGroupColor() {
+  const rootChildren = tree.getRootNode().children || [];
+  const usedColors = new Set();
+  let groupCount = 0;
+  rootChildren.forEach(node => {
+    if (node.data.isGroup) {
+      groupCount++;
+      if (node.data.color) usedColors.add(node.data.color);
+    }
+  });
+
+  const allColors = ['grey', 'blue', 'red', 'yellow', 'green', 'pink', 'purple', 'cyan', 'orange'];
+  const availableColors = allColors.filter(c => !usedColors.has(c));
+  const colorPalette = availableColors.length > 0 ? availableColors : allColors;
+  return colorPalette[groupCount % colorPalette.length];
+}
+
 // Show group dialog
 function showGroupDialog(x, y, isEdit = false, currentColor = null) {
   closeAllOverlays('groupDialog');
   positionElement(groupDialog, x, y);
-  
+
   // Focus input after animation starts
   setTimeout(() => groupNameInput.focus(), 50);
-  
-  // If no color specified (creating new group), use smart color selection
-  let selectedColor = currentColor;
-  if (!selectedColor) {
-    // Get colors already in use by existing groups and count total groups
-    const rootNode = tree.fancytree('getRootNode');
-    const rootChildren = rootNode.children || [];
-    const usedColors = new Set();
-    let groupCount = 0;
-    rootChildren.forEach(node => {
-      if (node.data.isGroup) {
-        groupCount++;
-        if (node.data.color) {
-          usedColors.add(node.data.color);
-        }
-      }
-    });
-    
-    // All available colors
-    const allColors = ['grey', 'blue', 'red', 'yellow', 'green', 'pink', 'purple', 'cyan', 'orange'];
-    
-    // Filter to unused colors
-    const availableColors = allColors.filter(c => !usedColors.has(c));
-    
-    // Use group count to rotate through available colors for consistent distribution
-    const colorPalette = availableColors.length > 0 ? availableColors : allColors;
-    selectedColor = colorPalette[groupCount % colorPalette.length];
-    
-    console.log('Group dialog: Groups:', groupCount, '| Used colors:', Array.from(usedColors), '| Selected:', selectedColor);
-  }
-  
+
+  const selectedColor = currentColor || pickGroupColor();
+
   // Clear previous selection and select the appropriate color
   document.querySelectorAll('.color-option').forEach(el => el.classList.remove('selected'));
   const colorToSelect = document.querySelector(`.color-option[data-color="${selectedColor}"]`);
@@ -1242,24 +1260,13 @@ function showGroupDialog(x, y, isEdit = false, currentColor = null) {
   }
 }
 
-// Create or update group when color is clicked
+// Commit the dialog. Name and color are already applied live, so this only needs to
+// flush the final title in case an input event was still pending, then dismiss.
 async function createOrUpdateGroup(color) {
-  const name = groupNameInput.value.trim();
-  
-  if (pendingGroupTabIds.length > 0) {
-    // Creating new group
-    const edges = pendingGroupEdges;
-    const groupId = await chrome.tabs.group({ tabIds: pendingGroupTabIds });
-    await chrome.tabGroups.update(groupId, { title: name, color });
-    await chrome.runtime.sendMessage({ type: 'RESTORE_TREE_STRUCTURE', edges, groupId });
-  } else if (editingGroupContext && editingGroupContext.type === 'group') {
-    // Editing existing group
-    const groupId = editingGroupContext.node.data.groupId;
-    await chrome.tabGroups.update(groupId, { title: name, color });
+  if (liveGroupId != null) {
+    await chrome.tabGroups.update(liveGroupId, { title: groupNameInput.value.trim(), color });
   }
-  
   closeGroupDialog();
-  editingGroupContext = null; // Clear after use
 }
 
 function showPinnedContextMenu(e, tabId) {
@@ -1323,14 +1330,16 @@ document.querySelectorAll('.color-option').forEach(el => {
     document.querySelectorAll('.color-option').forEach(opt => opt.classList.remove('selected'));
     // Select the clicked color
     el.classList.add('selected');
-    
-    // For editing existing groups, update color immediately (live preview like Chrome)
-    if (editingGroupContext && editingGroupContext.type === 'group') {
-      const groupId = editingGroupContext.node.data.groupId;
-      const color = el.dataset.color;
-      await chrome.tabGroups.update(groupId, { color });
+
+    if (liveGroupId != null) {
+      await chrome.tabGroups.update(liveGroupId, { color: el.dataset.color });
     }
   });
+});
+
+groupNameInput.addEventListener('input', () => {
+  if (liveGroupId == null) return;
+  chrome.tabGroups.update(liveGroupId, { title: groupNameInput.value.trim() });
 });
 
 // Enter key in group name input
@@ -1445,8 +1454,9 @@ async function renderSavedGroups() {
 
   savedGroups.forEach(group => {
     const color = GROUP_COLOR_MAP[group.color] || '#5f6368';
-    const name = group.name && group.name.trim() ? group.name : 'Untitled group';
-    const tabCount = group.tabs ? group.tabs.length : 0;
+    const tabs = group.tabs || [];
+    const name = group.name && group.name.trim() ? group.name : untitledGroupLabel(tabs);
+    const tabCount = tabs.length;
 
     const row = document.createElement('div');
     row.className = 'saved-group-item';
@@ -1748,9 +1758,9 @@ function captureTreeEdges(rootNodes) {
  * - Creates new groups only for domains without existing groups
  */
 async function autoOrganize() {
-  if (!tree || !tree.fancytree('getTree')) return;
+  if (!tree) return;
   
-  const rootNode = tree.fancytree('getRootNode');
+  const rootNode = tree.getRootNode();
   const rootChildren = rootNode.children || [];
   
   // Build map of existing groups by their title (domain name)

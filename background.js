@@ -3,6 +3,7 @@ import {
   computeRestoreAssignments,
   dedupeSavedGroup,
   capSavedGroups,
+  untitledGroupLabel,
 } from './lib/tree-logic.mjs';
 
 // Set to true to enable verbose per-event logging during development.
@@ -882,7 +883,7 @@ function buildTreeStructure() {
     // Map Chrome colors to known CSS classes or data attributes
     const groupNode = {
       key: groupKey,
-      title: group.title || 'Untitled Group',
+      title: group.title, // '' for untitled; labeled after assembly, once children are known
       folder: true,
       expanded: !group.collapsed,
       children: [],
@@ -967,6 +968,17 @@ function buildTreeStructure() {
   // 5. Combine Groups and Roots
   // Filter out empty groups (no children = group was closed or is stale)
   const groupNodes = Array.from(groupNodeMap.values()).filter(g => g.children.length > 0);
+
+  groupNodes.forEach(g => {
+    if (g.title) return;
+    const all = [];
+    const walk = (nodes) => nodes.forEach(n => {
+      all.push(n.data);
+      if (n.children) walk(n.children);
+    });
+    walk(g.children);
+    g.title = untitledGroupLabel(all);
+  });
 
   // Sort group children (tabs inside groups) by newest first
   groupNodes.forEach(g => sortByNewest(g.children));
