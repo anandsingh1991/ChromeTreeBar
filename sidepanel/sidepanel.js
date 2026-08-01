@@ -911,6 +911,17 @@ function closeGroupDialog() {
   document.querySelectorAll('.color-option').forEach(el => el.classList.remove('selected'));
 }
 
+// Only one overlay may be open at a time. Every opener calls this first, so adding a new
+// overlay means adding it here once rather than editing every other opener.
+// `except` must name the overlay being opened: closeGroupDialog resets the pending
+// group state that createGroup sets immediately before opening it.
+function closeAllOverlays(except) {
+  if (except !== 'context') closeContextMenu();
+  if (except !== 'groupDialog') closeGroupDialog();
+  if (except !== 'savedGroups') closeSavedGroupsDialog();
+  if (except !== 'settings') closeSettingsMenu();
+}
+
 // Position menu within viewport bounds
 function positionElement(element, x, y) {
   // First set display to get accurate dimensions
@@ -1187,7 +1198,7 @@ async function handleMenuAction(action) {
 
 // Show group dialog
 function showGroupDialog(x, y, isEdit = false, currentColor = null) {
-  closeContextMenu();
+  closeAllOverlays('groupDialog');
   positionElement(groupDialog, x, y);
   
   // Focus input after animation starts
@@ -1252,7 +1263,7 @@ async function createOrUpdateGroup(color) {
 }
 
 function showPinnedContextMenu(e, tabId) {
-  closeGroupDialog();
+  closeAllOverlays('context');
   lastContextMenuPosition = { x: e.clientX, y: e.clientY };
   contextMenuTarget = { type: 'pinned', node: null, nodes: [], tabId };
   renderMenuItems(buildMenuItems(contextMenuTarget));
@@ -1262,8 +1273,8 @@ function showPinnedContextMenu(e, tabId) {
 // Context menu event listener
 document.getElementById('tree').addEventListener('contextmenu', (e) => {
   e.preventDefault();
-  closeGroupDialog();
-  
+  closeAllOverlays('context');
+
   // Store position for later use in dialogs
   lastContextMenuPosition = { x: e.clientX, y: e.clientY };
   
@@ -1453,8 +1464,7 @@ async function renderSavedGroups() {
 }
 
 function openSavedGroupsDialog() {
-  closeContextMenu();
-  closeGroupDialog();
+  closeAllOverlays('savedGroups');
   renderSavedGroups();
   savedGroupsDialog.style.display = 'block';
   setTimeout(() => savedGroupsDialog.classList.add('show'), 0);
@@ -1548,6 +1558,8 @@ function toggleSettingsMenu() {
   if (isVisible) {
     closeSettingsMenu();
   } else {
+    closeAllOverlays('settings');
+
     // Position menu above the settings button, aligned to bottom-right
     const btnRect = settingsBtn.getBoundingClientRect();
     
