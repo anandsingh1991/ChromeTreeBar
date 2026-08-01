@@ -7,24 +7,25 @@ let reloadTimer = null;
 // Cache for failed favicon URLs - prevents retrying on every render
 const faviconFailureCache = new Set();
 
+// Set by renderPinnedStrip; lets updateActiveTab tell "pinned" from "another window".
+let pinnedTabIds = new Set();
+
 function getFaviconUrl(pageUrl, directFavIconUrl = null) {
-  // Priority: Use direct favIconUrl from Chrome if available (most reliable for new tabs)
-  // Fallback: Use Chrome's _favicon API (requires favicon to be cached)
-  
+  // Do NOT prefer tab.favIconUrl here: loading a site's own icon is cross-origin, and
+  // sites sending Cross-Origin-Resource-Policy: same-origin (e.g. stackoverflow.com)
+  // block it outright. _favicon reads Chrome's local store, so it can't be blocked.
+  if (pageUrl) {
+    const url = new URL(`chrome-extension://${EXTENSION_ID}/_favicon/`);
+    url.searchParams.append('pageUrl', pageUrl);
+    url.searchParams.append('size', '32');
+    return url.toString();
+  }
+
   if (directFavIconUrl && directFavIconUrl.startsWith('http')) {
     return directFavIconUrl;
   }
-  
-  if (!pageUrl) {
-    return '';
-  }
-  
-  // Use Chrome's _favicon helper (requires "favicon" permission)
-  // Size: 32px is good for high DPI
-  const url = new URL(`chrome-extension://${EXTENSION_ID}/_favicon/`);
-  url.searchParams.append('pageUrl', pageUrl);
-  url.searchParams.append('size', '32');
-  return url.toString();
+
+  return '';
 }
 
 function getFirstLetterFallback(url, title) {
@@ -79,15 +80,89 @@ function createFaviconElement(node) {
   return $favicon;
 }
 
-// Case-insensitive substring matcher over a node's title AND its URL, for filterBranches.
-// Bookmark folders / group headers have no url and just match on title.
-function makeSearchMatcher(query) {
-  const needle = query.toLowerCase();
-  return (node) => {
-    const title = (node.title || '').toLowerCase();
-    const url = (node.data && node.data.url ? node.data.url : '').toLowerCase();
-    return title.indexOf(needle) >= 0 || url.indexOf(needle) >= 0;
+// 6-column cap keeps a pill above a comfortable click target; past that the strip wraps.
+function getPinnedPillMetrics(count) {
+  const perRow = Math.min(count, 6);
+  return {
+    perRow,
+    height: perRow <= 2 ? 34 : perRow <= 4 ? 30 : 28,
+    icon: perRow <= 2 ? 18 : perRow <= 4 ? 16 : 14
   };
+}
+
+// Fancytree's "No data." counts only tree matches, so a pinned-only match would show a
+// pill above an empty-results message.
+function syncNoDataVisibility() {
+  const hasPills = document.querySelectorAll('#pinned-strip .pinned-pill').length > 0;
+  // Must be a class, not inline display: the row rule uses display: flex !important.
+  $('#tree .fancytree-statusnode-nodata').toggleClass('fancytree-hide', hasPills);
+}
+
+async function renderPinnedStrip() {
+  const strip = document.getElementById('pinned-strip');
+  if (!strip) return;
+
+  const currentWindow = await chrome.windows.getCurrent();
+  const allPinned = await chrome.tabs.query({ pinned: true, windowId: currentWindow.id });
+  // Unfiltered on purpose — updateActiveTab needs every pinned id, not just matches.
+  pinnedTabIds = new Set(allPinned.map(t => t.id));
+
+  // The strip is outside the Fancytree instance, so filterBranches can't reach it.
+  const query = $('#search-input').val().trim();
+  const pinned = query
+    ? allPinned.filter(t => matchesQuery(query, t.title, t.url))
+    : allPinned;
+
+  strip.innerHTML = '';
+  if (pinned.length === 0) {
+    strip.style.display = 'none';
+    return;
+  }
+
+  const { perRow, height, icon } = getPinnedPillMetrics(pinned.length);
+  strip.style.setProperty('--pin-per-row', perRow);
+  strip.style.setProperty('--pin-h', `${height}px`);
+  strip.style.setProperty('--pin-icon', `${icon}px`);
+  strip.style.display = 'flex';
+
+  pinned.forEach(tab => {
+    const $pill = $('<div class="pinned-pill"></div>')
+      .toggleClass('active-pin', tab.active)
+      .attr('title', tab.title || tab.url)
+      .data('tabId', tab.id);
+
+    const faviconUrl = getFaviconUrl(tab.url, tab.favIconUrl);
+    const cacheKey = faviconUrl || tab.url;
+    const letterIcon = () => {
+      const fallback = getFirstLetterFallback(tab.url, tab.title);
+      return $(`<span class="pin-letter-icon" style="background-color: ${fallback.color};">${fallback.letter}</span>`);
+    };
+
+    if (!faviconUrl || faviconFailureCache.has(cacheKey)) {
+      $pill.append(letterIcon());
+    } else {
+      // .attr (not interpolation) so a quote in the URL can't break out of the attribute.
+      const $img = $('<img class="pin-favicon" alt="">').attr('src', faviconUrl);
+      $img.on('error', function () {
+        faviconFailureCache.add(cacheKey);
+        $(this).replaceWith(letterIcon());
+      });
+      $pill.append($img);
+    }
+
+    strip.appendChild($pill[0]);
+  });
+}
+
+// Shared by the tree filter and the pinned strip so the two can't disagree on a match.
+function matchesQuery(query, title, url) {
+  const needle = query.toLowerCase();
+  return (title || '').toLowerCase().indexOf(needle) >= 0
+    || (url || '').toLowerCase().indexOf(needle) >= 0;
+}
+
+function makeSearchMatcher(query) {
+  return (node) => matchesQuery(query, node.title, node.data && node.data.url);
 }
 
 function addBookmarksToTree() {
@@ -123,6 +198,16 @@ function removeBookmarksFromTree() {
 
 $(document).ready(async () => {
   initTree();
+  renderPinnedStrip();
+
+  $('#pinned-strip').on('click', '.pinned-pill', function () {
+    chrome.runtime.sendMessage({ type: 'ACTIVATE_TAB', tabId: $(this).data('tabId') });
+  });
+
+  $('#pinned-strip').on('contextmenu', '.pinned-pill', function (e) {
+    e.preventDefault();
+    showPinnedContextMenu(e, $(this).data('tabId'));
+  });
 
   // Search Logic
   $('#search-input').on('input', function (e) {
@@ -148,7 +233,7 @@ $(document).ready(async () => {
     if (query) {
       $('#clear-search').show();
       addBookmarksToTree();
-      
+
       const matchCount = treeInstance.filterBranches(makeSearchMatcher(query));
       console.log(`Search query: "${query}", Matches: ${matchCount}`);
     } else {
@@ -156,6 +241,8 @@ $(document).ready(async () => {
       treeInstance.clearFilter();
       removeBookmarksFromTree();
     }
+    // Ordered: syncNoDataVisibility counts rendered pills.
+    renderPinnedStrip().then(syncNoDataVisibility);
   });
 
   $('#clear-search').on('click', function () {
@@ -168,6 +255,7 @@ $(document).ready(async () => {
     const treeInstance = tree.fancytree('getTree');
     treeInstance.clearFilter();
     removeBookmarksFromTree();
+    renderPinnedStrip();
   }
 });
 
@@ -594,14 +682,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 function handleBackgroundMessage(message) {
   if (message.type === 'TAB_CREATED') {
     reloadTree();
+    renderPinnedStrip();
   } else if (message.type === 'TAB_REMOVED') {
     reloadTree();
+    renderPinnedStrip();
   } else if (message.type === 'TAB_UPDATED') {
     updateNode(message.tabId, message.tab, message.changeInfo || {});
+    if (message.changeInfo && (message.changeInfo.pinned !== undefined || message.changeInfo.favIconUrl || message.changeInfo.title)) {
+      renderPinnedStrip();
+    }
   } else if (message.type === 'TAB_ACTIVATED') {
     updateActiveTab(message.tabId);
+    renderPinnedStrip();
   } else if (message.type === 'TAB_MOVED') {
     reloadTree();
+    renderPinnedStrip();
   } else if (message.type === 'GROUP_CREATED' || message.type === 'GROUP_UPDATED' || message.type === 'GROUP_REMOVED') {
     reloadTree();
   } else if (message.type === 'SAVED_GROUPS_UPDATED') {
@@ -758,8 +853,9 @@ function updateNode(tabId, tab, changeInfo = {}) {
 function updateActiveTab(tabId) {
   if (!tree || !tree.fancytree('getTree')) return; // Guard against race condition
   // Ignore activations for tabs not in this window's tree, else another window's
-  // activation would clear this panel's highlight and re-add none.
-  if (!tree.fancytree('getNodeByKey', String(tabId))) return;
+  // activation would clear this panel's highlight and re-add none. Pinned tabs are
+  // absent from the tree by design, so they must not be filtered out here.
+  if (!tree.fancytree('getNodeByKey', String(tabId)) && !pinnedTabIds.has(tabId)) return;
   tree.fancytree('getRootNode').visit((node) => {
     const isActive = parseInt(node.key) === tabId;
     node.data.active = isActive;
@@ -852,6 +948,13 @@ function positionElement(element, x, y) {
 function buildMenuItems(context) {
   const items = [];
   
+  if (context.type === 'pinned') {
+    items.push({ icon: 'push_pin', label: 'Unpin tab', action: 'unpin' });
+    items.push({ type: 'separator' });
+    items.push({ icon: 'close', label: 'Close tab', action: 'closePinned' });
+    return items;
+  }
+
   if (context.type === 'bookmark') {
     items.push({ icon: 'open_in_new', label: 'Open in new tab', action: 'openBookmark' });
     items.push({ icon: 'tab', label: 'Open in current tab', action: 'openBookmarkCurrent' });
@@ -873,9 +976,11 @@ function buildMenuItems(context) {
     }
     
     items.push({ type: 'separator' });
+    items.push({ icon: 'push_pin', label: 'Pin tab', action: 'pin' });
     items.push({ icon: 'create_new_folder', label: 'Add to new group', action: 'createGroup' });
     items.push({ type: 'separator' });
     items.push({ icon: 'close', label: 'Close tab with children', action: 'closeWithChildren' });
+    items.push({ icon: 'delete_sweep', label: 'Close other tabs', action: 'closeOthers' });
   } else if (context.type === 'multi') {
     items.push({ icon: 'create_new_folder', label: `Add ${context.nodes.length} tabs to new group`, action: 'createGroup' });
     items.push({ type: 'separator' });
@@ -974,6 +1079,18 @@ async function handleMenuAction(action) {
       await chrome.tabs.update(tabId, { muted: !currentMuted });
       break;
     }
+    case 'pin': {
+      await chrome.tabs.update(parseInt(context.node.key), { pinned: true });
+      break;
+    }
+    case 'unpin': {
+      await chrome.tabs.update(context.tabId, { pinned: false });
+      break;
+    }
+    case 'closePinned': {
+      await chrome.tabs.remove(context.tabId);
+      break;
+    }
     case 'createGroup': {
       const nodes = context.type === 'multi' ? context.nodes : [context.node];
       const groupableNodes = nodes.filter(n => !n.data.isGroup);
@@ -987,6 +1104,16 @@ async function handleMenuAction(action) {
         ? context.nodes.filter(n => !n.data.isGroup).map(n => parseInt(n.key))
         : [parseInt(context.node.key)];
       await chrome.tabs.remove(tabIds);
+      clearSelection();
+      break;
+    }
+    case 'closeOthers': {
+      const keep = new Set(collectAllTabIdsFromNode(context.node));
+      const currentWindow = await chrome.windows.getCurrent();
+      const tabs = await chrome.tabs.query({ windowId: currentWindow.id });
+      // Pinned tabs survive, matching Chrome's own "Close other tabs".
+      const toClose = tabs.filter(t => !keep.has(t.id) && !t.pinned).map(t => t.id);
+      if (toClose.length) await chrome.tabs.remove(toClose);
       clearSelection();
       break;
     }
@@ -1122,6 +1249,14 @@ async function createOrUpdateGroup(color) {
   
   closeGroupDialog();
   editingGroupContext = null; // Clear after use
+}
+
+function showPinnedContextMenu(e, tabId) {
+  closeGroupDialog();
+  lastContextMenuPosition = { x: e.clientX, y: e.clientY };
+  contextMenuTarget = { type: 'pinned', node: null, nodes: [], tabId };
+  renderMenuItems(buildMenuItems(contextMenuTarget));
+  positionElement(contextMenu, e.clientX, e.clientY);
 }
 
 // Context menu event listener

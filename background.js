@@ -107,6 +107,7 @@ async function initializeTree() {
         groupId: tab.groupId, // Storing Group ID
         audible: tab.audible || false, // Track audio playing state
         muted: tab.mutedInfo?.muted || false, // Track muted state
+        pinned: tab.pinned || false,
         level: 0
       });
     }
@@ -168,7 +169,18 @@ function determineParentId(tab, currentTree, prevNodeOverride = null) {
     log('DECISION: null (tab belongs to group', tab.groupId, '- groups take precedence over nesting)');
     return null;
   }
-  
+
+  // Pinned tabs live in the sidepanel's strip, not the tree, so they can be neither
+  // child nor parent — nesting under one hides the child behind a node never drawn.
+  if (tab.pinned) {
+    log('DECISION: null (tab is pinned - lives in the pinned strip, never nested)');
+    return null;
+  }
+  if (openerTabId && currentTree.has(openerTabId) && currentTree.get(openerTabId).pinned) {
+    log('DECISION: null (opener', openerTabId, 'is pinned - cannot be a tree parent)');
+    return null;
+  }
+
   // PRIORITY 1: Explicit New Tab Check
   // User explicitly opened a new tab (Ctrl+T / Cmd+T) - should ALWAYS be root
   // Chrome sets pendingUrl to 'chrome://newtab/' for explicit new tab actions
@@ -553,6 +565,7 @@ async function onTabCreated(tab) {
     groupId: tab.groupId, // Initial groupId from Chrome
     audible: tab.audible || false, // Track audio playing state
     muted: tab.mutedInfo?.muted || false, // Track muted state
+    pinned: tab.pinned || false,
     level: 0
   });
   log('✅ Tab added to tabTree synchronously');
@@ -641,7 +654,17 @@ function onTabUpdated(tabId, changeInfo, tab) {
     if (changeInfo.favIconUrl) node.favIconUrl = changeInfo.favIconUrl;
     if (changeInfo.audible !== undefined) node.audible = changeInfo.audible;
     if (changeInfo.mutedInfo !== undefined) node.muted = changeInfo.mutedInfo.muted;
-    
+
+    if (changeInfo.pinned !== undefined) {
+      node.pinned = changeInfo.pinned;
+      // Promote children to root: their parent is about to stop being rendered.
+      if (changeInfo.pinned) {
+        [...node.children].forEach(childId => linkTreeEdge(childId, null));
+        linkTreeEdge(tabId, null);
+      }
+      notifySidepanel('TAB_MOVED', {});
+    }
+
     if (changeInfo.groupId !== undefined) {
       const oldGroupId = node.groupId;
       const newGroupId = changeInfo.groupId;
@@ -889,7 +912,8 @@ function buildTreeStructure() {
         favIconUrl: node.favIconUrl,
         groupId: node.groupId, // Ensure this is passed
         audible: node.audible, // Pass audio state to sidepanel
-        muted: node.muted // Pass muted state to sidepanel
+        muted: node.muted, // Pass muted state to sidepanel
+        pinned: node.pinned
       }
     });
   });
@@ -898,12 +922,15 @@ function buildTreeStructure() {
   tabTree.forEach((node, id) => {
     const treeNode = nodeMap.get(id);
 
+    if (node.pinned) return;
+
     // Logic: Nesting (custom) > Grouping (native) > Root
     // Nest only when child and parent share group membership; otherwise a child in a
     // different group (or ungrouped) would render inside its parent's group folder,
-    // misrepresenting Chrome's membership.
+    // misrepresenting Chrome's membership. A pinned parent is never drawn, so nesting
+    // under it would drop this node from the render entirely.
     const parentNode = node.parentId != null ? tabTree.get(node.parentId) : null;
-    const sharesParentGroup = parentNode && parentNode.groupId === node.groupId;
+    const sharesParentGroup = parentNode && parentNode.groupId === node.groupId && !parentNode.pinned;
     if (node.parentId && nodeMap.has(node.parentId) && sharesParentGroup) {
       // Child of another tab -> Stay nested (Hybrid Model)
       nodeMap.get(node.parentId).children.push(treeNode);
