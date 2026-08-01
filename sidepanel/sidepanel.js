@@ -419,14 +419,15 @@ async function initTree() {
       // --- BOOKMARK ITEM RENDER ---
       if (node.data.isBookmark) {
         $span.addClass('bookmark-node');
-        
-        // Bookmark icon (star for bookmarks, folder for bookmark folders)
+
+        // Folders keep a folder glyph; leaf bookmarks show the real site favicon
+        // (with letter fallback) so rows are visually distinguishable like native.
         if (node.folder) {
           $title.append(`<span class="material-icons bookmark-icon" style="font-size: 16px;">folder</span>`);
         } else {
-          $title.append(`<span class="material-icons bookmark-icon" style="font-size: 16px;">star</span>`);
+          $title.append(createFaviconElement(node));
         }
-        
+
         $title.append(`<span class="bookmark-title-text">${escapeHtml(node.title)}</span>`);
         return;
       }

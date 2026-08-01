@@ -112,10 +112,6 @@ body.theme-light .multi-selected .tab-title-text {
   color: var(--sys-color-on-secondary-container) !important;
 }
 
-body.theme-light .bookmark-node .bookmark-icon {
-  color: #f9ab00;
-}
-
 body.theme-light .bookmarks-root-header {
   border-top-color: var(--sys-color-outline-variant);
 }
@@ -178,10 +174,6 @@ body.theme-dark .active-tab .tab-title-text {
 body.theme-dark .fancytree-active .tab-title-text,
 body.theme-dark .multi-selected .tab-title-text {
   color: #e8def8 !important;
-}
-
-body.theme-dark .bookmark-node .bookmark-icon {
-  color: #fdd663;
 }
 
 body.theme-dark .tab-close:hover {
@@ -563,7 +555,7 @@ ul.fancytree-container li.group-parent-li.fancytree-hide * {
 }
 
 .bookmark-node .bookmark-icon {
-  color: #f9ab00; /* Chrome's bookmark gold */
+  color: var(--sys-color-on-surface-variant);
   margin-right: 12px;
   flex-shrink: 0;
 }
@@ -596,10 +588,6 @@ ul.fancytree-container li.group-parent-li.fancytree-hide * {
 @media (prefers-color-scheme: dark) {
   body.theme-auto .bookmarks-root-header {
     border-top-color: var(--sys-color-outline-variant);
-  }
-  
-  body.theme-auto .bookmark-node .bookmark-icon {
-    color: #fdd663; /* Lighter gold for dark mode */
   }
 }
 
