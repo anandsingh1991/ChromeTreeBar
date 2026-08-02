@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ChromeTreeBar",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Manage Chrome tabs in a tree structure with drag-and-drop, tab groups, bookmarks integration, and instant search",
   "permissions": [
     "tabs",
