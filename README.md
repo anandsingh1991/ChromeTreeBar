@@ -4,6 +4,8 @@
 
 [![Chrome Web Store](https://img.shields.io/badge/Chrome%20Web%20Store-Install-blue?logo=googlechrome)](https://chromewebstore.google.com/detail/chrometreebar/lagpggegakalnfipjmknjmachimpngfg)
 
+![ChromeTreeBar side panel showing tabs nested in a tree, with colored tab groups and a pinned tabs strip](docs/images/hero.png)
+
 ## 🚀 Install
 
 **[Install from Chrome Web Store →](https://chromewebstore.google.com/detail/chrometreebar/lagpggegakalnfipjmknjmachimpngfg)**
@@ -22,6 +24,8 @@ Your pinned tabs stay at the top where you expect them, as compact pills under t
 ### 💾 Saved Groups
 Close a tab group and ChromeTreeBar keeps it — name, color, tabs, and nesting. Open the Groups dialog to restore any of them with one click, right where you left off.
 
+<img src="docs/images/panel-groups.png" alt="The Tab groups dialog listing saved groups with their color, tab count, and when they were last used" width="380">
+
 ### 🪄 Auto-Organize
 One click groups your loose tabs by website domain, merging into matching groups when they already exist. Your nested hierarchy survives the grouping.
 
@@ -29,7 +33,9 @@ One click groups your loose tabs by website domain, merging into matching groups
 Your Chrome Bookmarks are available right alongside your active tabs. Access your saved pages quickly, search through them, and open them in new or current tabs with a simple right-click.
 
 ### 🔎 Instant Search
-Looking for that one article you opened 2 hours ago? Use the built-in search bar to instantly filter your open tabs and bookmarks by title or URL.
+Looking for that one article you opened 2 hours ago? Use the built-in search bar to instantly filter your open tabs and bookmarks by title or URL. Pinned tabs are filtered too.
+
+<img src="docs/images/panel-search.png" alt="Searching for &quot;chrome&quot; filters the tree and the pinned strip down to matching tabs" width="380">
 
 ### 🖱️ Advanced Context Menu
 Right-click any tab or group to unlock powerful actions:

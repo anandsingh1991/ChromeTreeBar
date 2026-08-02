@@ -21,3 +21,8 @@ QA.md
 
 # Local planning / task tracking - not tracked in git
 tasks/
+
+# Store listing artwork: build.sh is tracked, its inputs/outputs are not.
+# Raw captures are re-shootable and the 1280x800 renders only go to the dashboard.
+store-assets/raw/
+store-assets/out/
