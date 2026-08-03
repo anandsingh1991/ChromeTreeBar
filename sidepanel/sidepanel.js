@@ -1265,8 +1265,10 @@ function showGroupDialog(x, y, isEdit = false, currentColor = null) {
   closeAllOverlays('groupDialog');
   positionElement(groupDialog, x, y);
 
-  // Focus input after animation starts
-  setTimeout(() => groupNameInput.focus(), 50);
+  // Safe to focus synchronously: positionElement already set display:block, and that is
+  // all focus() needs — the opacity/pointer-events transition is purely visual. Deferring
+  // this left the dialog visible but unfocused, dropping keystrokes in the gap.
+  groupNameInput.focus();
 
   const selectedColor = currentColor || pickGroupColor();
 
