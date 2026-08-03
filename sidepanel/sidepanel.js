@@ -220,11 +220,6 @@ $(document).ready(async () => {
       return;
     }
 
-    if (e.which === 27) { // Escape check still works on keyup usually, but input handles content changes
-      clearSearch();
-      return;
-    }
-
     // Safety check just in case
     const treeInstance = tree;
     if (!treeInstance) return;
@@ -245,6 +240,15 @@ $(document).ready(async () => {
     }
     // Ordered: syncNoDataVisibility counts rendered pills.
     renderPinnedStrip().then(syncNoDataVisibility);
+  });
+
+  // Must be keydown: `input` events carry no key code, so checking for Escape there
+  // never matched. stopPropagation keeps the document-level Escape handlers, which close
+  // the overlays, from also reacting while the user is only dismissing a search.
+  $('#search-input').on('keydown', function (e) {
+    if (e.key !== 'Escape' || !tree) return;
+    e.stopPropagation();
+    clearSearch();
   });
 
   $('#clear-search').on('click', function () {
