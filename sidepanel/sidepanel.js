@@ -770,6 +770,13 @@ async function reloadTree() {
     rootNode.removeChildren();
     rootNode.addChildren(combinedTree);
 
+    // The nodes above are new objects, so Fancytree's active node is gone and the row
+    // for the current tab would render unhighlighted until the next activation.
+    const activeTab = (await chrome.tabs.query({ active: true, windowId: currentWindowId }))[0];
+    if (activeTab) {
+      updateActiveTab(activeTab.id);
+    }
+
     // Re-apply filter if searching
     if (isSearching) {
       tree.filterBranches(makeSearchMatcher($('#search-input').val().trim()));
@@ -885,6 +892,17 @@ function updateActiveTab(tabId) {
       $(node.span).removeClass('active-tab');
     }
   });
+
+  // A pinned tab has no row, so the loop above set no new active node and Fancytree
+  // would keep the old one: it stays purple, and Fancytree suppresses `activate` for
+  // an already-active node, so clicking it sends no ACTIVATE_TAB and the tab never
+  // reopens. {noEvents: true} — this mirrors Chrome's state, it doesn't request it.
+  if (!tree.getNodeByKey(String(tabId))) {
+    const stale = tree.getActiveNode();
+    if (stale) {
+      stale.setActive(false, { noEvents: true });
+    }
+  }
 }
 
 // =====================================================
