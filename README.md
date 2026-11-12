@@ -58,16 +58,12 @@ Choose between Light, Dark, or Auto theme to match your workflow. Access the set
 ### 🔊 Audio Indicators
 Tabs playing audio show a speaker icon in the row, so you can find whatever is making noise without hunting. Mute or unmute straight from the right-click menu.
 
-## 🆕 What's New in v1.3.0
+## 🆕 What's New in v1.4.0
 
-- **Pinned tabs strip** — pinned tabs render as space-efficient pills at the top of the panel, shrinking as you add more
-- **Close other tabs** — clears everything except the tab you clicked and its children; pinned tabs are left alone
-- **Live group preview** — creating a group applies immediately, so the tree updates as you type the name or pick a color
-- **Readable untitled groups** — an unnamed group shows its shared site, or a tab count when its tabs span several sites
-- **Favicons that actually load** — some sites' icons previously fell back to a letter permanently; they now come from Chrome's own icon store
-- **Bookmark favicons** — bookmarks show the real site icon instead of a uniform gold star
-- **Compact menus** — menus and dialogs now match the density of the rows they act on
-- Fixes: saved groups past the tenth were unreachable, menus could stack on top of each other, and dragging a link into the panel threw an error
+- **Pinned tabs are never lost** — every window now has your pinned tabs, closing one reopens it straight away, and each pin comes back to the page you pinned it on, even after a Chrome restart. Unpin a tab to remove it for good
+- **Reset to pinned page** — right-click a pinned tab to send it back to the page you pinned it on
+- **Keep pinned tabs setting** — on by default; turn it off in the settings menu to go back to Chrome's ordinary pinning. When you first update, the pinned tabs from all your windows are shared across every window
+- Fixes: switching to a pinned tab could leave the previous tab highlighted and unclickable, the group name box dropped the first few keystrokes, and Esc didn't clear the search box
 
 ## 🔒 Privacy First
 
