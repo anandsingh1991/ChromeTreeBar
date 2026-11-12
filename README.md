@@ -21,6 +21,8 @@ Do you use Chrome's native Tab Groups? ChromeTreeBar natively supports them! You
 ### 📌 Pinned Tabs Strip
 Your pinned tabs stay at the top where you expect them, as compact pills under the search box instead of the wide tiles Chrome uses. The pills shrink as you pin more, so a full row of pinned tabs costs you a fraction of the vertical space. Pinning stays in sync with Chrome both ways.
 
+Pinned tabs are never lost. Every window has your pins, closing one reopens it straight away, and each pin always comes back to the page you pinned it on, even after a Chrome restart. Unpin a tab to remove it for good. Prefer Chrome's ordinary pinning? Turn off **Keep pinned tabs** in the settings menu.
+
 ### 💾 Saved Groups
 Close a tab group and ChromeTreeBar keeps it — name, color, tabs, and nesting. Open the Groups dialog to restore any of them with one click, right where you left off.
 

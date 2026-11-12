@@ -4,6 +4,7 @@ import {
   dedupeSavedGroup,
   capSavedGroups,
   untitledGroupLabel,
+  matchPinnedTabs,
 } from './lib/tree-logic.mjs';
 
 // Set to true to enable verbose per-event logging during development.
@@ -464,6 +465,268 @@ function linkTreeEdge(tabId, parentId) {
   }
 }
 
+// --- Persistent Pins ---
+// Every normal window carries a copy of every pin. A pin keeps the URL it was pinned at:
+// closing a copy reopens it there, a browser restart sends every copy back to it, and
+// unpinning any copy removes the pin everywhere.
+
+const PIN_SETTLE_MS = 1500;
+const PIN_SETTLE_CAP_MS = 10000;
+const PIN_REOPEN_LIMIT = 3;
+const PIN_REOPEN_WINDOW_MS = 10000;
+
+let pinsEnabled = true; // "Keep pinned tabs" setting; assumed on until loadPins reads it
+let persistentPins = []; // [{ id, url }] in strip order
+// Tab ids only last one browser session, so this is kept in storage.session. Finding it
+// missing on load means a browser restart, an extension update, or a re-enable.
+const pinCopies = new Map(); // tabId -> { pinId, windowId }
+// Pinned by the user, as opposed to tabs that appeared already pinned (restored copies).
+const userPinnedTabIds = new Set();
+const closingWindowIds = new Set();
+const pinReopenTimes = new Map(); // `${pinId}:${windowId}` -> recent reopen timestamps
+let matchPinsByPosition = false;
+let resetPinsToPinnedUrl = false;
+let lastTabCreatedAt = Date.now();
+let pinReconcileQueued = false;
+let pinReconcileRunning = false;
+let pinSettleNeeded = false;
+
+const pinsReady = loadPins();
+
+async function loadPins() {
+  const [{ persistentPins: stored, persistentPinsEnabled }, { pinCopies: storedCopies }] =
+    await Promise.all([
+      chrome.storage.local.get(['persistentPins', 'persistentPinsEnabled']),
+      chrome.storage.session.get('pinCopies'),
+    ]);
+  pinsEnabled = persistentPinsEnabled !== false;
+  persistentPins = stored || [];
+  if (storedCopies) {
+    Object.entries(storedCopies).forEach(([tabId, copy]) => pinCopies.set(Number(tabId), copy));
+    return;
+  }
+  // Never by position while seeding from existing pinned tabs: that would merge unrelated
+  // pinned tabs from different windows into one pin.
+  matchPinsByPosition = stored !== undefined;
+  schedulePinReconcile(true);
+}
+
+function savePins() {
+  return Promise.all([
+    chrome.storage.local.set({ persistentPins }),
+    chrome.storage.session.set({ pinCopies: Object.fromEntries(pinCopies) }),
+  ]);
+}
+
+const tabUrl = tab => tab.url || tab.pendingUrl || '';
+
+// Each pass rebuilds from live Chrome state, so passes are serialized and any number of
+// events arriving mid-pass collapse into one more pass.
+function schedulePinReconcile(settle = false) {
+  if (!pinsEnabled) return;
+  if (settle) pinSettleNeeded = true;
+  pinReconcileQueued = true;
+  if (!pinReconcileRunning) runPinReconcile();
+}
+
+async function runPinReconcile() {
+  pinReconcileRunning = true;
+  try {
+    // loadPins decides whether the first pass must settle; an event that woke the worker
+    // must not start that pass before the decision is made.
+    await pinsReady;
+    while (pinReconcileQueued) {
+      if (pinSettleNeeded) {
+        await waitForTabCreationToSettle();
+        pinSettleNeeded = false;
+      }
+      pinReconcileQueued = false;
+      await reconcilePins().catch(e => console.error('reconcilePins failed:', e));
+    }
+  } finally {
+    pinReconcileRunning = false;
+  }
+}
+
+// Chrome never signals that session restore (or a reopened window) is done, so wait for a
+// lull in tab creation. Reconciling mid-restore opens copies Chrome is about to restore.
+async function waitForTabCreationToSettle() {
+  const deadline = Date.now() + PIN_SETTLE_CAP_MS;
+  let quietFor;
+  while ((quietFor = Date.now() - lastTabCreatedAt) < PIN_SETTLE_MS && Date.now() < deadline) {
+    await new Promise(resolve => setTimeout(resolve, PIN_SETTLE_MS - quietFor));
+  }
+}
+
+// Caps a close/reopen fight with a page or another extension that keeps closing a pin.
+function mayReopenPin(pinId, windowId) {
+  const key = `${pinId}:${windowId}`;
+  const now = Date.now();
+  const recent = (pinReopenTimes.get(key) || []).filter(t => now - t < PIN_REOPEN_WINDOW_MS);
+  if (recent.length >= PIN_REOPEN_LIMIT) return false;
+  pinReopenTimes.set(key, [...recent, now]);
+  return true;
+}
+
+async function reconcilePins() {
+  // Re-checked here, not just in schedulePinReconcile: a pass queued before loadPins
+  // resolved, or before the setting was switched off, must not act on a stale answer.
+  if (!pinsEnabled) return;
+  const windows = (await chrome.windows.getAll({ populate: true, windowTypes: ['normal'] }))
+    .filter(w => !w.incognito && !closingWindowIds.has(w.id));
+  const liveTabs = new Map(windows.flatMap(w => w.tabs.map(t => [t.id, t])));
+  const toClose = new Set();
+
+  const unpinnedIds = new Set();
+  for (const [tabId, copy] of pinCopies) {
+    const tab = liveTabs.get(tabId);
+    if (tab && tab.pinned) {
+      copy.windowId = tab.windowId;
+      continue;
+    }
+    pinCopies.delete(tabId);
+    // Chrome unpins a tab that moves to another window; only unpinning in place removes
+    // the pin, a moved copy just becomes a normal tab and its old window gets a new one.
+    if (tab && tab.windowId === copy.windowId) unpinnedIds.add(copy.pinId);
+  }
+  if (unpinnedIds.size > 0) {
+    persistentPins = persistentPins.filter(p => !unpinnedIds.has(p.id));
+    for (const [tabId, { pinId }] of pinCopies) {
+      if (unpinnedIds.has(pinId)) {
+        pinCopies.delete(tabId);
+        toClose.add(tabId);
+      }
+    }
+  }
+
+  for (const w of windows) {
+    const pinnedTabs = w.tabs.filter(t => t.pinned && !toClose.has(t.id));
+    const unknown = pinnedTabs.filter(t => !pinCopies.has(t.id));
+    const { matches, unmatched } = matchPinnedTabs(
+      unknown.filter(t => !userPinnedTabIds.has(t.id)).map(t => ({ id: t.id, url: tabUrl(t) })),
+      persistentPins,
+      {
+        presentPinIds: new Set(pinnedTabs.map(t => pinCopies.get(t.id)?.pinId).filter(Boolean)),
+        byPosition: matchPinsByPosition,
+      }
+    );
+    matches.forEach(({ tabId, pinId }) => pinCopies.set(tabId, { pinId, windowId: w.id }));
+    const adopt = new Set(unmatched);
+    unknown.filter(t => adopt.has(t.id) || userPinnedTabIds.has(t.id)).forEach(t => {
+      const pin = { id: crypto.randomUUID(), url: tabUrl(t) };
+      persistentPins.push(pin);
+      pinCopies.set(t.id, { pinId: pin.id, windowId: w.id });
+    });
+    pinnedTabs.forEach(t => userPinnedTabIds.delete(t.id));
+  }
+  matchPinsByPosition = false;
+
+  for (const w of windows) {
+    const copiesByPin = new Map();
+    w.tabs.filter(t => pinCopies.has(t.id)).forEach(t => {
+      const { pinId } = pinCopies.get(t.id);
+      copiesByPin.set(pinId, [...(copiesByPin.get(pinId) || []), t]);
+    });
+    for (const copies of copiesByPin.values()) {
+      if (copies.length < 2) continue;
+      // The active or newest copy is the one the user just restored or dragged in.
+      const keep = copies.find(t => t.active) || copies.reduce((a, b) => (b.id > a.id ? b : a));
+      copies.filter(t => t !== keep).forEach(t => {
+        pinCopies.delete(t.id);
+        toClose.add(t.id);
+      });
+    }
+  }
+
+  if (resetPinsToPinnedUrl) {
+    resetPinsToPinnedUrl = false;
+    const pinById = new Map(persistentPins.map(p => [p.id, p]));
+    for (const [tabId, { pinId }] of pinCopies) {
+      const pin = pinById.get(pinId);
+      if (pin && tabUrl(liveTabs.get(tabId)) !== pin.url) {
+        chrome.tabs.update(tabId, { url: pin.url }).catch(() => {});
+      }
+    }
+  }
+
+  await Promise.all([...toClose].map(id => chrome.tabs.remove(id).catch(() => {})));
+
+  for (const w of windows) {
+    const present = new Set(w.tabs.map(t => pinCopies.get(t.id)?.pinId));
+    for (const [index, pin] of persistentPins.entries()) {
+      if (present.has(pin.id) || closingWindowIds.has(w.id) || !mayReopenPin(pin.id, w.id)) continue;
+      try {
+        const tab = await chrome.tabs.create({ windowId: w.id, url: pin.url, pinned: true, index, active: false });
+        pinCopies.set(tab.id, { pinId: pin.id, windowId: w.id });
+      } catch (e) {
+        // Expected while the user is dragging a tab; the drop's onAttached retries.
+        log('Could not reopen pin', pin.url, e);
+      }
+    }
+  }
+
+  await savePins();
+}
+
+async function resetPinnedTab(tabId) {
+  await pinsReady;
+  const pin = persistentPins.find(p => p.id === pinCopies.get(tabId)?.pinId);
+  if (pin) await chrome.tabs.update(tabId, { url: pin.url });
+}
+
+// Both directions drop the saved pins: whichever state we enter, the pins are re-seeded
+// from whatever is actually pinned at the time, so a stale list can't resurrect a pin the
+// user removed while the feature was off. Open tabs are left alone — turning the setting
+// off must not close anything.
+chrome.storage.onChanged.addListener(async (changes, area) => {
+  if (area !== 'local' || !changes.persistentPinsEnabled) return;
+  // A toggle can wake the worker, racing this listener with loadPins' own reads; without
+  // the await, loadPins can finish second and restore the state cleared here.
+  await pinsReady;
+  pinsEnabled = changes.persistentPinsEnabled.newValue !== false;
+  persistentPins = [];
+  pinCopies.clear();
+  if (pinsEnabled) schedulePinReconcile();
+  else savePins();
+});
+
+chrome.runtime.onStartup.addListener(() => {
+  resetPinsToPinnedUrl = true;
+  schedulePinReconcile(true);
+});
+
+chrome.windows.onCreated.addListener(win => {
+  if (win.type !== 'normal' || win.incognito) return;
+  lastTabCreatedAt = Date.now();
+  schedulePinReconcile(true);
+});
+
+chrome.windows.onRemoved.addListener(windowId => closingWindowIds.delete(windowId));
+
+chrome.tabs.onCreated.addListener(tab => {
+  lastTabCreatedAt = Date.now();
+  if (tab.pinned) schedulePinReconcile();
+});
+
+chrome.tabs.onRemoved.addListener(async (tabId, { windowId, isWindowClosing }) => {
+  // Closing a window is not closing its pins: every other window already has them, and
+  // reopening into a window that is shutting down (or Chrome quitting) would be wrong.
+  if (isWindowClosing) {
+    closingWindowIds.add(windowId);
+    return;
+  }
+  await pinsReady;
+  if (pinCopies.has(tabId)) schedulePinReconcile();
+});
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (changeInfo.pinned === undefined) return;
+  if (changeInfo.pinned) userPinnedTabIds.add(tabId);
+  schedulePinReconcile();
+});
+
+chrome.tabs.onAttached.addListener(() => schedulePinReconcile());
+
 // --- Event Listeners with Buffering ---
 
 chrome.tabs.onCreated.addListener(tab => {
@@ -831,6 +1094,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         await chrome.storage.local.set({ savedGroups: filtered });
       });
       notifySidepanel('SAVED_GROUPS_UPDATED', {});
+      sendResponse({ success: true });
+    } else if (message.type === 'RESET_PINNED_TAB') {
+      await resetPinnedTab(message.tabId);
       sendResponse({ success: true });
     } else if (message.type === 'RESTORE_TREE_STRUCTURE') {
       // Re-apply nesting the panel captured before grouping. Set groupId eagerly first so

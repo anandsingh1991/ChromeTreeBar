@@ -12,6 +12,9 @@ const faviconFailureCache = new Set();
 // Set by renderPinnedStrip; lets updateActiveTab tell "pinned" from "another window".
 let pinnedTabIds = new Set();
 
+// Mirrored from storage so the synchronous pill menu can read it.
+let persistentPinsEnabled = true;
+
 function getFaviconUrl(pageUrl, directFavIconUrl = null) {
   // Do NOT prefer tab.favIconUrl here: loading a site's own icon is cross-origin, and
   // sites sending Cross-Origin-Resource-Policy: same-origin (e.g. stackoverflow.com)
@@ -1000,7 +1003,9 @@ function buildMenuItems(context) {
   if (context.type === 'pinned') {
     items.push({ icon: 'push_pin', label: 'Unpin tab', action: 'unpin' });
     items.push({ type: 'separator' });
-    items.push({ icon: 'close', label: 'Close tab', action: 'closePinned' });
+    items.push(persistentPinsEnabled
+      ? { icon: 'refresh', label: 'Reset to pinned page', action: 'resetPinned' }
+      : { icon: 'close', label: 'Close tab', action: 'closePinned' });
     return items;
   }
 
@@ -1134,6 +1139,10 @@ async function handleMenuAction(action) {
     }
     case 'unpin': {
       await chrome.tabs.update(context.tabId, { pinned: false });
+      break;
+    }
+    case 'resetPinned': {
+      await chrome.runtime.sendMessage({ type: 'RESET_PINNED_TAB', tabId: context.tabId });
       break;
     }
     case 'closePinned': {
@@ -1587,6 +1596,26 @@ function applyTheme(theme) {
   });
 }
 
+const persistentPinsToggle = document.getElementById('toggle-persistent-pins');
+
+async function loadPersistentPinsSetting() {
+  const { persistentPinsEnabled: stored } = await chrome.storage.local.get('persistentPinsEnabled');
+  persistentPinsEnabled = stored !== false;
+  persistentPinsToggle.checked = persistentPinsEnabled;
+}
+
+persistentPinsToggle.addEventListener('change', () => {
+  chrome.storage.local.set({ persistentPinsEnabled: persistentPinsToggle.checked });
+});
+
+// Every window has its own panel, so each one follows the setting rather than only the
+// panel that was clicked.
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local' || !changes.persistentPinsEnabled) return;
+  persistentPinsEnabled = changes.persistentPinsEnabled.newValue !== false;
+  persistentPinsToggle.checked = persistentPinsEnabled;
+});
+
 // Toggle settings menu
 function toggleSettingsMenu() {
   const isVisible = settingsMenu.classList.contains('show');
@@ -1700,6 +1729,7 @@ document.addEventListener('keydown', (e) => {
 
 // Initialize theme on page load
 loadTheme();
+loadPersistentPinsSetting();
 
 /**
  * Get grouping key from URL

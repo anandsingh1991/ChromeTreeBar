@@ -1257,20 +1257,23 @@ ul.fancytree-container li.group-parent-li.fancytree-hide * {
 }
 
 /* Settings Row Appearance - Icon + Label + Controls in single row */
-.settings-row-appearance {
+.settings-row-appearance,
+.settings-row-control {
   display: flex;
   align-items: center;
   padding: 4px 12px;
   gap: 12px;
 }
 
-.settings-row-appearance .material-icons {
+.settings-row-appearance .material-icons,
+.settings-row-control .material-icons {
   font-size: 16px;
   color: var(--sys-color-on-surface-variant);
   flex-shrink: 0;
 }
 
-.settings-row-appearance .settings-row-label {
+.settings-row-appearance .settings-row-label,
+.settings-row-control .settings-row-label {
   font-size: 13px;
   font-weight: 400;
   color: var(--sys-color-on-surface);
@@ -1322,6 +1325,55 @@ ul.fancytree-container li.group-parent-li.fancytree-hide * {
 .theme-option.active {
   background: var(--sys-color-primary-container);
   color: var(--sys-color-on-primary-container);
+}
+
+/* Settings Switch - iOS Style, paired with .settings-row-appearance */
+.settings-switch {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.settings-switch input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.settings-switch-track {
+  display: block;
+  position: relative;
+  width: 34px;
+  height: 18px;
+  border-radius: 9px;
+  background: var(--sys-color-outline-variant);
+  transition: background-color 0.15s ease;
+}
+
+.settings-switch-track::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--sys-color-background);
+  transition: transform 0.15s ease, background-color 0.15s ease;
+}
+
+.settings-switch input:checked + .settings-switch-track {
+  background: var(--sys-color-primary-container);
+}
+
+.settings-switch input:checked + .settings-switch-track::after {
+  background: var(--sys-color-on-primary-container);
+  transform: translateX(16px);
+}
+
+.settings-switch input:focus-visible + .settings-switch-track {
+  outline: 2px solid var(--sys-color-outline);
+  outline-offset: 2px;
 }
 
 /* Settings Item - Clickable row like context menu items */
